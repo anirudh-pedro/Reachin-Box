@@ -2,7 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { redisConfig } from '../config/redis.js';
 import { prisma } from '../config/prisma.js';
 import { sendEmail } from '../services/mail.service.js';
-import { EMAIL_QUEUE_NAME, EmailJobData, addEmailToQueue } from './email.queue.js';
+import { EMAIL_QUEUE_NAME, EmailJobData, addEmailToQueue, emailQueue } from './email.queue.js';
 import {
   checkAndIncrementHourlyLimit,
   checkSenderDelayThrottle,
@@ -10,11 +10,13 @@ import {
   rateLimitEvents,
 } from '../services/rate-limiter.service.js';
 import { indexEmail } from '../services/elasticsearch.service.js';
+import { DistributedLock } from '../utils/distributed-lock.js';
 import { Redis } from 'ioredis';
 
 const concurrency = parseInt(process.env.WORKER_CONCURRENCY || '5', 10);
 const MAX_ATTEMPTS = 3; // Keep in sync with emailQueue's defaultJobOptions.attempts in email.queue.ts
 const workerRedis = new Redis(redisConfig);
+const distributedLock = new DistributedLock(workerRedis);
 
 export const emailWorker = new Worker<EmailJobData>(
   EMAIL_QUEUE_NAME,
@@ -43,19 +45,29 @@ export const emailWorker = new Worker<EmailJobData>(
       return { skipped: true, reason: 'Permanently failed' };
     }
 
-    // Versioning Check: If the DB's active jobId belongs to a newer execution, this job is stale
+    // Versioning Check: If the DB's active jobId belongs to a newer execution, verify existence
     if (emailRecord.jobId && emailRecord.jobId !== job.id) {
-      console.warn(
-        `🔁 [Worker] Job ${job.id} has been superseded by newer queue execution ${emailRecord.jobId}. Skipping.`
-      );
-      return { skipped: true, reason: 'Superseded by newer queue execution' };
+      const newerJob = await emailQueue.getJob(emailRecord.jobId);
+      if (newerJob) {
+        console.warn(
+          `🔁 [Worker] Job ${job.id} has been superseded by active queue execution ${emailRecord.jobId}. Skipping.`
+        );
+        return { skipped: true, reason: 'Superseded by newer queue execution' };
+      } else {
+        // Crash recovery: DB references a new execution that failed to insert into Redis before crash
+        console.warn(
+          `🩹 [Worker Recovery] Email ${emailJobId} references execution ${emailRecord.jobId} missing from Redis. Re-enqueuing to recover.`
+        );
+        await addEmailToQueue(job.data, emailRecord.scheduledAt, emailRecord.jobId);
+        return { recovered: true, newJobId: emailRecord.jobId };
+      }
     }
 
-    // Distributed Lock per logical EmailJob ID to prevent concurrent worker execution
+    // Distributed Lock per logical EmailJob ID with auto-renewal heartbeat
     const lockKey = `lock:email:${emailJobId}`;
-    const acquiredLock = await workerRedis.set(lockKey, job.id!, 'PX', 60000, 'NX');
-    if (!acquiredLock) {
-      console.warn(`🔒 [Worker] Email ${emailJobId} is currently being processed by another worker. Skipping.`);
+    const lockHandle = await distributedLock.acquire(lockKey, 60000, job.id);
+    if (!lockHandle) {
+      console.warn(`🔒 [Worker] Email ${emailJobId} is currently locked by another worker. Skipping duplicate execution.`);
       return { skipped: true, reason: 'Locked by concurrent worker' };
     }
 
@@ -274,9 +286,11 @@ export const emailWorker = new Worker<EmailJobData>(
 
       throw err;
     } finally {
-      // Release distributed lock
+      // Safely release distributed lock verifying token ownership
       try {
-        await workerRedis.del(lockKey);
+        if (lockHandle) {
+          await lockHandle.release();
+        }
       } catch (e: any) {
         console.warn(`⚠️ [Worker] Failed to release lock ${lockKey}:`, e.message);
       }

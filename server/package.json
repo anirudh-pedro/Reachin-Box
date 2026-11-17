@@ -14,7 +14,9 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "seed:senders": "tsx src/scripts/seed-senders.ts",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "tsx --test tests/*.test.ts tests/integration/*.integration.test.ts",
+    "test:unit": "tsx --test tests/*.test.ts",
+    "test:integration": "tsx --test tests/integration/*.integration.test.ts"
   },
   "dependencies": {
     "@bull-board/api": "^6.7.12",
