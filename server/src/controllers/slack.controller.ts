@@ -9,13 +9,21 @@ import { encryptToken } from '../utils/encryption.js';
 const STATE_TTL_SECONDS = 600; // 10 minutes
 
 /**
+ * Single source of truth for the Slack OAuth Redirect URI across the backend.
+ * Guaranteed to match exactly: http://localhost:5000/api/auth/slack/callback
+ */
+export function getSlackRedirectUri(): string {
+  return (process.env.SLACK_REDIRECT_URI || 'http://localhost:5000/api/auth/slack/callback').trim();
+}
+
+/**
  * Initiates the Slack OAuth v2 flow by generating a cryptographically secure
  * state parameter associated with the authenticated user in Redis.
  * GET /api/auth/slack/url
  */
 export async function getSlackAuthUrl(req: Request, res: Response): Promise<void> {
   const clientId = process.env.SLACK_CLIENT_ID;
-  const redirectUri = process.env.SLACK_REDIRECT_URI || 'http://localhost:5000/api/auth/slack/callback';
+  const redirectUri = getSlackRedirectUri();
 
   if (!clientId) {
     res.status(400).json({
@@ -73,7 +81,7 @@ export async function handleSlackCallback(req: Request, res: Response): Promise<
   const error = req.query.error as string;
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const redirectUri = process.env.SLACK_REDIRECT_URI || 'http://localhost:5000/api/auth/slack/callback';
+  const redirectUri = getSlackRedirectUri();
 
   if (error) {
     console.warn(`⚠️ [Slack] User denied or cancelled Slack OAuth authorization: ${error}`);

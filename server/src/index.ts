@@ -6,6 +6,7 @@ import emailRoutes from './routes/email.routes.js';
 import slackRoutes from './routes/slack.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import { serverAdapter } from './queue/bull-board.js';
+import { getSlackRedirectUri } from './controllers/slack.controller.js';
 import './services/slack.service.js'; // Start Slack event listener (also needed here for the direct testSlackNotification endpoint)
 import { getOrCreateDefaultSender } from './services/mail.service.js';
 import { initElasticsearch } from './services/elasticsearch.service.js';
@@ -122,6 +123,7 @@ const server = app.listen(Number(PORT), HOST, async () => {
   console.log(`📊 Bull-Board Queue Dashboard: http://${HOST}:${PORT}/admin/queues`);
   console.log(`📧 API Base: http://${HOST}:${PORT}/api/emails`);
   console.log(`🔔 Slack API: http://${HOST}:${PORT}/api/auth/slack`);
+  console.log(`🔗 Slack OAuth Redirect URI: ${getSlackRedirectUri()}`);
   console.log(`🌐 CORS allowed origins: ${allowedOrigins.join(', ')}`);
   console.log(`👷 Worker running in this process: ${RUN_WORKER_IN_PROCESS}`);
   console.log(`======================================================\n`);
