@@ -138,13 +138,39 @@ export function App() {
 
   const handleLogin = (newUser: User) => {
     setUser(newUser);
-    localStorage.setItem('reachinbox_user', JSON.stringify(newUser));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await api.logout();
     setUser(null);
-    localStorage.removeItem('reachinbox_user');
   };
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+
+    // Validate active session with server on boot
+    const token = localStorage.getItem('reachinbox_token');
+    if (token) {
+      api.getCurrentUser()
+        .then((verifiedUser) => {
+          if (verifiedUser) setUser(verifiedUser);
+        })
+        .catch(() => {
+          setUser(null);
+        });
+    }
+
+    if (window.location.search.includes('slack_connected')) {
+      setIsSlackOpen(true);
+    }
+
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    };
+  }, []);
 
   const handleTabChange = (tab: 'scheduled' | 'sent') => {
     setActiveTab(tab);

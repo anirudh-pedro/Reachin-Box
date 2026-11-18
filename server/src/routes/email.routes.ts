@@ -8,8 +8,12 @@ import {
   getSenders,
   getEmailById,
 } from '../controllers/email.controller.js';
+import { requireAuth } from '../middleware/auth.middleware.js';
 
 const router = Router();
+
+// All email routes require an authenticated user session
+router.use(requireAuth);
 
 router.post('/schedule', scheduleEmails);
 router.get('/scheduled', getScheduledEmails);

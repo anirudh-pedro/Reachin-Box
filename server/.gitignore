@@ -1,18 +1,28 @@
 # Dependencies
-node_modules
+node_modules/
+.pnpm-store/
 
-# Environment variables (contain DB/Redis/SMTP/Slack secrets - never commit)
+# Environment variables & secrets (contain DB/Redis/SMTP/Slack/Google credentials - never commit)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+client_secret*.json
+*.json.key
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
 
-# Build output
-dist
-dist-ssr
+# Production build outputs
+dist/
+dist-ssr/
+build/
 *.tsbuildinfo
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -20,13 +30,22 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Editor directories and files
+# Database & Cache runtime dumps
+dump.rdb
+*.rdb
+*.sqlite
+*.sqlite3
+*.db
+
+# OS & Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+!.vscode/settings.json
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+Thumbs.db

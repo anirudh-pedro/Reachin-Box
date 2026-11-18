@@ -28,6 +28,7 @@ export async function initElasticsearch(): Promise<boolean> {
           mappings: {
             properties: {
               id: { type: 'keyword' },
+              userId: { type: 'keyword' },
               recipient: {
                 type: 'text',
                 fields: { keyword: { type: 'keyword', ignore_above: 256 } },
@@ -57,6 +58,7 @@ export async function initElasticsearch(): Promise<boolean> {
 
 export interface EmailDoc {
   id: string;
+  userId?: string | null;
   recipient: string;
   subject: string;
   body: string;
@@ -81,6 +83,7 @@ export async function indexEmail(email: EmailDoc, retryCount = 0): Promise<void>
       id: email.id,
       document: {
         id: email.id,
+        userId: email.userId || null,
         recipient: email.recipient,
         subject: email.subject,
         body: email.body,
@@ -95,9 +98,10 @@ export async function indexEmail(email: EmailDoc, retryCount = 0): Promise<void>
   } catch (err: any) {
     if (retryCount < 2) {
       // Retry once after a brief delay
-      setTimeout(() => {
+      const retryTimer = setTimeout(() => {
         indexEmail(email, retryCount + 1).catch(() => {});
       }, 500 * (retryCount + 1));
+      if (retryTimer.unref) retryTimer.unref();
     } else {
       console.warn(`⚠️ Failed to index email ${email.id} in Elasticsearch:`, err.message);
     }
@@ -110,6 +114,7 @@ export interface SearchParams {
   tab?: 'scheduled' | 'sent';
   page?: number;
   limit?: number;
+  userId?: string;
 }
 
 export async function searchEmails(params: SearchParams) {
@@ -135,6 +140,13 @@ export async function searchEmails(params: SearchParams) {
   if (isElasticsearchAvailable) {
     try {
       const mustClauses: any[] = [];
+
+      // User tenant isolation
+      if (params.userId) {
+        mustClauses.push({
+          term: { userId: params.userId },
+        });
+      }
 
       if (query) {
         mustClauses.push({
@@ -192,6 +204,9 @@ export async function searchEmails(params: SearchParams) {
 
   // 2. Fallback to PostgreSQL
   const where: any = {};
+  if (params.userId) {
+    where.userId = params.userId;
+  }
   if (targetStatuses.length === 1) {
     where.status = targetStatuses[0];
   } else if (targetStatuses.length > 1) {

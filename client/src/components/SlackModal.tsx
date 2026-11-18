@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { X, MessageSquare, CheckCircle2, Send, AlertCircle, Link2, Unlink } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, MessageSquare, CheckCircle2, Send, AlertCircle, Link2, Unlink, Loader2 } from 'lucide-react';
 import type { SlackStatus } from '../types';
-import { api, API_ORIGIN } from '../services/api';
+import { api } from '../services/api';
 
 interface SlackModalProps {
   isOpen: boolean;
@@ -20,15 +20,53 @@ export const SlackModal: React.FC<SlackModalProps> = ({
   const [channelName, setChannelName] = useState('#rate-limits');
   const [isConnecting, setIsConnecting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  // Check for Slack OAuth redirect query params on mount/open
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const slackConnected = urlParams.get('slack_connected');
+    const workspaceParam = urlParams.get('workspace');
+    const errorParam = urlParams.get('error');
+
+    if (slackConnected === 'success') {
+      setFeedback({
+        type: 'success',
+        msg: `Successfully connected Slack workspace ${workspaceParam ? `"${workspaceParam}"` : ''}!`,
+      });
+      onStatusUpdated();
+      // Clean query params from URL without reload
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (slackConnected === 'error') {
+      setFeedback({
+        type: 'error',
+        msg: `Slack authorization failed: ${errorParam ? decodeURIComponent(errorParam) : 'Access denied'}`,
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [isOpen, onStatusUpdated]);
 
   if (!isOpen) return null;
 
-  const handleOAuthConnect = () => {
-    // In dev, API_ORIGIN is empty and this correctly resolves relative to the
-    // current page (proxied by Vite). In production, VITE_API_URL points this at
-    // the real deployed backend instead of a meaningless "localhost:5000".
-    window.location.href = `${API_ORIGIN}/api/auth/slack/url?redirect=true`;
+  const handleOAuthConnect = async () => {
+    setIsConnecting(true);
+    setFeedback(null);
+    try {
+      const res = await api.getSlackAuthUrl();
+      if (res.url) {
+        window.location.href = res.url;
+      } else {
+        throw new Error('No authorization URL returned from server.');
+      }
+    } catch (err: any) {
+      console.error('Failed to initiate Slack OAuth:', err);
+      setFeedback({
+        type: 'error',
+        msg: err.response?.data?.message || err.response?.data?.error || 'Failed to initiate Slack OAuth flow.',
+      });
+      setIsConnecting(false);
+    }
   };
 
   const handleWebhookConnect = async (e: React.FormEvent) => {
@@ -60,7 +98,7 @@ export const SlackModal: React.FC<SlackModalProps> = ({
     setFeedback(null);
     try {
       await api.testSlackAlert();
-      setFeedback({ type: 'success', msg: 'Live test rate-limit alert sent to Slack channel!' });
+      setFeedback({ type: 'success', msg: 'Live test rate-limit alert sent to your Slack channel!' });
     } catch (err: any) {
       setFeedback({ type: 'error', msg: err.response?.data?.message || err.message });
     } finally {
@@ -69,12 +107,16 @@ export const SlackModal: React.FC<SlackModalProps> = ({
   };
 
   const handleDisconnect = async () => {
+    setIsDisconnecting(true);
+    setFeedback(null);
     try {
       await api.disconnectSlack();
-      setFeedback({ type: 'success', msg: 'Slack integration disconnected.' });
+      setFeedback({ type: 'success', msg: 'Slack integration disconnected successfully.' });
       onStatusUpdated();
     } catch (err: any) {
-      setFeedback({ type: 'error', msg: err.message });
+      setFeedback({ type: 'error', msg: err.response?.data?.message || err.message });
+    } finally {
+      setIsDisconnecting(false);
     }
   };
 
@@ -129,9 +171,16 @@ export const SlackModal: React.FC<SlackModalProps> = ({
                   }`}
                 ></span>
                 <span className="text-sm font-medium text-gray-900 truncate">
-                  {status.connected ? `Connected (${status.channel || 'Channel'})` : 'Not Connected'}
+                  {status.connected
+                    ? `Connected: ${status.teamName || 'Workspace'} (${status.channel || 'channel'})`
+                    : 'Not Connected'}
                 </span>
               </div>
+              {status.connected && status.connectedAt && (
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Connected on {new Date(status.connectedAt).toLocaleDateString()}
+                </p>
+              )}
             </div>
 
             {status.connected && (
@@ -142,17 +191,18 @@ export const SlackModal: React.FC<SlackModalProps> = ({
                   disabled={isTesting}
                   className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
                 >
-                  <Send className="w-3 h-3" />
+                  {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                   <span>{isTesting ? 'Sending...' : 'Test Alert'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleDisconnect}
-                  className="px-3 py-1.5 rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                  disabled={isDisconnecting}
+                  className="px-3 py-1.5 rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 text-xs font-medium flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
                 >
                   <Unlink className="w-3 h-3" />
-                  <span>Disconnect</span>
+                  <span>{isDisconnecting ? 'Disconnecting...' : 'Disconnect'}</span>
                 </button>
               </div>
             )}
@@ -161,7 +211,34 @@ export const SlackModal: React.FC<SlackModalProps> = ({
           {/* Connection Methods */}
           {!status.connected && (
             <div className="space-y-4">
-              {/* Method 1: Webhook Connect */}
+              {/* Method 1: Real Slack OAuth v2 */}
+              <div>
+                <p className="text-xs font-semibold text-gray-700 mb-2">Connect via Official Slack OAuth</p>
+                <button
+                  type="button"
+                  onClick={handleOAuthConnect}
+                  disabled={isConnecting}
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#4A154B] hover:bg-[#3d113e] text-white text-xs font-semibold flex items-center justify-center space-x-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {isConnecting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  ) : (
+                    <MessageSquare className="w-4 h-4 fill-[#E01E5A]" />
+                  )}
+                  <span>{isConnecting ? 'Redirecting to Slack...' : 'Authorize with Slack OAuth v2'}</span>
+                </button>
+                <p className="text-[11px] text-gray-400 mt-1.5 text-center">
+                  Protected with encrypted token storage (AES-256-GCM) & CSRF state verification
+                </p>
+              </div>
+
+              <div className="flex items-center my-3">
+                <div className="flex-1 border-t border-gray-100"></div>
+                <span className="px-3 text-[11px] text-gray-400 uppercase font-semibold">Or</span>
+                <div className="flex-1 border-t border-gray-100"></div>
+              </div>
+
+              {/* Method 2: Incoming Webhook */}
               <form onSubmit={handleWebhookConnect} className="space-y-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Connect via Incoming Webhook URL
@@ -193,22 +270,6 @@ export const SlackModal: React.FC<SlackModalProps> = ({
                   </button>
                 </div>
               </form>
-
-              <div className="flex items-center my-3">
-                <div className="flex-1 border-t border-gray-100"></div>
-                <span className="px-3 text-[11px] text-gray-400 uppercase font-semibold">Or</span>
-                <div className="flex-1 border-t border-gray-100"></div>
-              </div>
-
-              {/* Method 2: OAuth Flow */}
-              <button
-                type="button"
-                onClick={handleOAuthConnect}
-                className="w-full py-2.5 px-4 rounded-xl bg-[#4A154B] hover:bg-[#3d113e] text-white text-xs font-semibold flex items-center justify-center space-x-2 transition-all shadow-md cursor-pointer"
-              >
-                <MessageSquare className="w-4 h-4 fill-[#E01E5A]" />
-                <span>Authorize with Slack OAuth</span>
-              </button>
             </div>
           )}
         </div>

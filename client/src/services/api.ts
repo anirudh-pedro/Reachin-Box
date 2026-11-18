@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { EmailJob, SenderAccount, Stats, SlackStatus } from '../types';
+import type { EmailJob, SenderAccount, Stats, SlackStatus, User } from '../types';
 
 // In local dev, VITE_API_URL is left unset and requests go to the relative "/api"
 // path, which Vite's dev server proxies to the backend (see vite.config.ts) - this
@@ -12,7 +12,84 @@ const API_BASE = `${API_ORIGIN}/api`;
 
 export { API_ORIGIN };
 
+export const TOKEN_STORAGE_KEY = 'reachinbox_token';
+export const USER_STORAGE_KEY = 'reachinbox_user';
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function setStoredSession(token: string, user: User) {
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+}
+
+export function clearStoredSession() {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
+
+// Axios Request Interceptor: Attach Authorization Bearer token to all outgoing API requests
+axios.interceptors.request.use(
+  (config) => {
+    const token = getStoredToken();
+    if (token) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Axios Response Interceptor: Automatically handle 401 Unauthorized responses
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      const isAuthEndpoint = error.config?.url?.includes('/api/auth/google');
+      if (!isAuthEndpoint) {
+        clearStoredSession();
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const api = {
+  // Authentication
+  async googleLogin(idToken: string) {
+    const res = await axios.post<{
+      success: boolean;
+      token: string;
+      user: User;
+    }>(`${API_BASE}/auth/google`, { idToken });
+
+    if (res.data.token && res.data.user) {
+      setStoredSession(res.data.token, res.data.user);
+    }
+    return res.data;
+  },
+
+  async getCurrentUser() {
+    const res = await axios.get<{ success: boolean; user: User }>(`${API_BASE}/auth/me`);
+    if (res.data.user) {
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(res.data.user));
+    }
+    return res.data.user;
+  },
+
+  async logout() {
+    try {
+      await axios.post(`${API_BASE}/auth/logout`);
+    } catch {
+      // Best-effort logout
+    } finally {
+      clearStoredSession();
+    }
+  },
+
   // Emails
   async scheduleEmails(data: {
     recipients: string[];
@@ -62,6 +139,11 @@ export const api = {
   },
 
   // Slack
+  async getSlackAuthUrl() {
+    const res = await axios.get<{ url: string; state?: string }>(`${API_BASE}/auth/slack/url`);
+    return res.data;
+  },
+
   async getSlackStatus() {
     const res = await axios.get<SlackStatus>(`${API_BASE}/auth/slack/status`);
     return res.data;

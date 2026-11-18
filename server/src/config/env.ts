@@ -1,7 +1,12 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -31,6 +36,15 @@ const envSchema = z.object({
   SLACK_CLIENT_ID: z.string().optional(),
   SLACK_CLIENT_SECRET: z.string().optional(),
   SLACK_REDIRECT_URI: z.string().default('http://localhost:5000/api/auth/slack/callback'),
+  SLACK_TOKEN_ENCRYPTION_KEY: z.string().optional(),
+
+  // Google OAuth 2.0
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+
+  // JWT Session
+  JWT_SECRET: z.string().default('reachinbox_default_jwt_secret_dev_32bytes_min!'),
+  JWT_EXPIRES_IN: z.string().default('7d'),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -35,7 +35,6 @@ describe('1000-Job Load Simulation & Stress Verification', () => {
       });
     }
     await redis.quit();
-    await redisConnection.quit();
     await prisma.$disconnect();
   });
 

@@ -56,6 +56,7 @@ export async function scheduleEmails(req: Request, res: Response): Promise<void>
     }
 
     const { recipients, subject, body, startTime, delayBetweenEmails, hourlyLimit, senderId, userId } = parseResult.data;
+    const effectiveUserId = req.user?.id || userId;
 
     let effectiveSenderId = senderId;
     let senderEmailAddress: string | undefined;
@@ -91,13 +92,14 @@ export async function scheduleEmails(req: Request, res: Response): Promise<void>
           delayBetweenEmails,
           hourlyLimit,
           senderId: effectiveSenderId || undefined,
-          userId: userId || undefined,
+          userId: effectiveUserId || undefined,
         },
       });
 
       // 2. Index in Elasticsearch
       indexEmail({
         id: emailRecord.id,
+        userId: effectiveUserId || undefined,
         recipient: emailRecord.recipient,
         subject: emailRecord.subject,
         body: emailRecord.body,
@@ -115,7 +117,7 @@ export async function scheduleEmails(req: Request, res: Response): Promise<void>
           subject,
           body,
           senderId: effectiveSenderId,
-          userId,
+          userId: effectiveUserId,
           delayBetweenEmails,
           hourlyLimit,
           rescheduleCount: 0,
@@ -150,6 +152,10 @@ export async function getScheduledEmails(req: Request, res: Response): Promise<v
         in: ['SCHEDULED', 'PROCESSING', 'RATE_LIMITED'],
       },
     };
+
+    if (req.user) {
+      where.userId = req.user.id;
+    }
 
     if (search) {
       where.OR = [
@@ -198,6 +204,10 @@ export async function getSentEmails(req: Request, res: Response): Promise<void> 
       },
     };
 
+    if (req.user) {
+      where.userId = req.user.id;
+    }
+
     if (search) {
       where.OR = [
         { recipient: { contains: search, mode: 'insensitive' } },
@@ -240,7 +250,14 @@ export async function searchEmailsHandler(req: Request, res: Response): Promise<
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
 
-    const results = await searchEmails({ query: q, status, tab, page, limit });
+    const results = await searchEmails({
+      query: q,
+      status,
+      tab,
+      page,
+      limit,
+      userId: req.user?.id,
+    });
     res.json({ success: true, ...results });
   } catch (error: any) {
     console.error('Error in search:', error);
@@ -250,12 +267,14 @@ export async function searchEmailsHandler(req: Request, res: Response): Promise<
 
 export async function getStats(req: Request, res: Response): Promise<void> {
   try {
+    const userFilter = req.user ? { userId: req.user.id } : {};
+
     const [scheduled, sent, failed, rateLimited, total] = await Promise.all([
-      prisma.emailJob.count({ where: { status: 'SCHEDULED' } }),
-      prisma.emailJob.count({ where: { status: 'SENT' } }),
-      prisma.emailJob.count({ where: { status: 'FAILED' } }),
-      prisma.emailJob.count({ where: { status: 'RATE_LIMITED' } }),
-      prisma.emailJob.count(),
+      prisma.emailJob.count({ where: { ...userFilter, status: 'SCHEDULED' } }),
+      prisma.emailJob.count({ where: { ...userFilter, status: 'SENT' } }),
+      prisma.emailJob.count({ where: { ...userFilter, status: 'FAILED' } }),
+      prisma.emailJob.count({ where: { ...userFilter, status: 'RATE_LIMITED' } }),
+      prisma.emailJob.count({ where: userFilter }),
     ]);
 
     res.json({
@@ -283,7 +302,8 @@ export async function getEmailById(req: Request, res: Response): Promise<void> {
       include: { sender: { select: { name: true, email: true } } },
     });
 
-    if (!email) {
+    // Cross-tenant access protection: return 404 if email does not belong to authenticated user
+    if (!email || (req.user && email.userId && email.userId !== req.user.id)) {
       res.status(404).json({ error: 'Email not found', message: `No email job exists with id ${id}` });
       return;
     }

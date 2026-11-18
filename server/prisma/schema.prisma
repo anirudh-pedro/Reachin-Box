@@ -24,8 +24,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  slackIntegrations SlackIntegration[]
-  emails            EmailJob[]
+  slackIntegration SlackIntegration?
+  emails           EmailJob[]
 }
 
 model SenderAccount {
@@ -76,16 +76,19 @@ model EmailJob {
 
 model SlackIntegration {
   id                 String   @id @default(uuid())
-  userId             String?
-  user               User?    @relation(fields: [userId], references: [id])
+  userId             String?  @unique
+  user               User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   teamId             String?
   teamName           String?
-  accessToken        String
+  accessToken        String   // Encrypted at rest (AES-256-GCM)
   botUserId          String?
   channelId          String?
   channelName        String?
-  incomingWebhookUrl String?
+  incomingWebhookUrl String?  // Encrypted at rest (AES-256-GCM)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([teamId])
 }

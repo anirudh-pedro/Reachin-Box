@@ -22,7 +22,6 @@ describe('Atomic Redis Lua Scripts - Real Redis Integration Tests', () => {
 
   after(async () => {
     await redis.quit();
-    await redisConnection.quit();
   });
 
   it('atomically coordinates concurrent inter-send throttle reservations for the same sender', async () => {

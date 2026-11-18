@@ -4,10 +4,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import emailRoutes from './routes/email.routes.js';
 import slackRoutes from './routes/slack.routes.js';
+import authRoutes from './routes/auth.routes.js';
 import { serverAdapter } from './queue/bull-board.js';
 import './services/slack.service.js'; // Start Slack event listener (also needed here for the direct testSlackNotification endpoint)
 import { getOrCreateDefaultSender } from './services/mail.service.js';
 import { initElasticsearch } from './services/elasticsearch.service.js';
+import { validateEncryptionConfig } from './utils/encryption.js';
 import { prisma } from './config/prisma.js';
 import { redisConnection } from './config/redis.js';
 
@@ -50,6 +52,7 @@ app.use(express.json());
 app.use('/admin/queues', serverAdapter.getRouter());
 
 // API Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/emails', emailRoutes);
 app.use('/api/auth/slack', slackRoutes);
 
@@ -122,6 +125,9 @@ const server = app.listen(Number(PORT), HOST, async () => {
   console.log(`🌐 CORS allowed origins: ${allowedOrigins.join(', ')}`);
   console.log(`👷 Worker running in this process: ${RUN_WORKER_IN_PROCESS}`);
   console.log(`======================================================\n`);
+
+  // Validate AES-256-GCM token encryption configuration
+  validateEncryptionConfig();
 
   try {
     await getOrCreateDefaultSender();

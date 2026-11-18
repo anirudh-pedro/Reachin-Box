@@ -13,7 +13,8 @@ export const redisConfig: RedisOptions = {
   enableReadyCheck: false,
   lazyConnect: isTest,
   retryStrategy(times) {
-    if (isTest) return null; // Do not reconnect infinitely during tests
+    if (process.env.REDIS_NO_RETRY === 'true') return null;
+    if (isTest && times > 5) return null; // In tests, cap retries so test suite exits cleanly
     const delay = Math.min(times * 200, 2000);
     return delay;
   },

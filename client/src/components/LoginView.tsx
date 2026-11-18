@@ -1,50 +1,177 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { User } from '../types';
+import { api } from '../services/api';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 interface LoginViewProps {
   onLogin: (user: User) => void;
 }
 
-const DEMO_USER: User = {
-  name: 'Oliver Brown',
-  email: 'oliver.brown@domain.io',
-  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=128&h=128&fit=crop&crop=faces',
-};
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+            auto_select?: boolean;
+            cancel_on_tap_outside?: boolean;
+          }) => void;
+          renderButton: (
+            parent: HTMLElement,
+            options: {
+              theme?: 'outline' | 'filled_blue' | 'filled_black';
+              size?: 'large' | 'medium' | 'small';
+              text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+              shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+              width?: number;
+              logo_alignment?: 'left' | 'center';
+            }
+          ) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const googleHiddenBtnRef = useRef<HTMLDivElement>(null);
 
-  const handleGoogleLogin = () => {
-    // Real Google OAuth would redirect to accounts.google.com here.
-    onLogin(DEMO_USER);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
+  const handleGoogleCredentialResponse = async (response: { credential: string }) => {
+    if (!response.credential) {
+      setError('Google did not return a valid credential. Please try again.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await api.googleLogin(response.credential);
+      if (res.user) {
+        onLogin(res.user);
+      }
+    } catch (err: any) {
+      console.error('Google login error:', err);
+      const serverMessage = err.response?.data?.message || err.message || 'Authentication failed';
+      setError(`Login failed: ${serverMessage}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!googleClientId) return;
+
+    const initGsi = () => {
+      if (window.google?.accounts?.id && googleHiddenBtnRef.current) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleCredentialResponse,
+          });
+
+          googleHiddenBtnRef.current.innerHTML = '';
+          window.google.accounts.id.renderButton(googleHiddenBtnRef.current, {
+            theme: 'outline',
+            size: 'large',
+            text: 'signin_with',
+            shape: 'rectangular',
+            width: 320,
+          });
+        } catch (e: any) {
+          console.warn('Google Identity Services initialization warning:', e.message);
+        }
+      }
+    };
+
+    if (window.google?.accounts?.id) {
+      initGsi();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id) {
+          clearInterval(interval);
+          initGsi();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [googleClientId]);
+
+  const handleGoogleClick = () => {
+    setError(null);
+    if (window.google?.accounts?.id) {
+      // Find the rendered button inside hidden container and click it
+      const btn = googleHiddenBtnRef.current?.querySelector('div[role="button"]') as HTMLElement;
+      if (btn) {
+        btn.click();
+      } else {
+        window.google.accounts.id.prompt();
+      }
+    } else {
+      setError('Google Sign-In is initializing. Please check that VITE_GOOGLE_CLIENT_ID is active.');
+    }
   };
 
   const handleEmailLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter both Email ID and Password.');
+    if (!email.trim()) {
+      setError('Please enter your Email ID.');
       return;
     }
-    setError('');
-    onLogin({
-      name: email.split('@')[0],
-      email,
-      avatar: DEMO_USER.avatar,
-    });
+    setError(null);
+    // Instant fallback demo login matching Figma profile
+    const demoUser: User = {
+      id: 'usr_oliver_brown',
+      email: email.trim(),
+      name: email.split('@')[0] || 'Oliver Brown',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces',
+    };
+    onLogin(demoUser);
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] flex items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-[420px] bg-white border border-gray-200 rounded-2xl shadow-sm p-6 sm:p-10">
-        <h1 className="text-2xl font-bold text-gray-900 text-center mb-6">Login</h1>
+    <div className="min-h-screen bg-white flex items-center justify-center p-4">
+      {/* Hidden container where official Google SDK renders */}
+      <div ref={googleHiddenBtnRef} className="hidden" aria-hidden="true" />
 
-        {/* Google Login */}
+      {/* Centered Figma Login Card */}
+      <div className="w-full max-w-[420px] bg-white border border-[#eef0f2] rounded-2xl p-8 sm:p-10 shadow-[0_2px_16px_rgba(0,0,0,0.03)] flex flex-col">
+        {/* Title */}
+        <h1 className="text-3xl font-bold text-center text-[#111827] mb-8">Login</h1>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-5 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5 text-xs text-red-700">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+            <div className="flex-1">
+              <p>{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Indicator */}
+        {loading && (
+          <div className="mb-5 p-3 bg-[#eaf5ed] border border-[#d2edd9] rounded-xl flex items-center justify-center gap-2.5 text-xs font-medium text-[#00a854]">
+            <Loader2 className="w-4 h-4 animate-spin text-[#00a854]" />
+            <span>Signing in with Google...</span>
+          </div>
+        )}
+
+        {/* Figma "Login with Google" Button */}
         <button
           type="button"
-          onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 text-gray-800 text-sm font-medium rounded-lg py-2.5 transition-colors cursor-pointer"
+          onClick={handleGoogleClick}
+          disabled={loading}
+          className="w-full bg-[#eaf5ed] hover:bg-[#dff0e3] text-[#2d3748] font-medium text-sm py-3 px-4 rounded-xl flex items-center justify-center gap-2.5 transition-colors cursor-pointer border-0"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path
@@ -67,36 +194,33 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
           <span>Login with Google</span>
         </button>
 
-        {/* Divider */}
-        <div className="flex items-center gap-3 my-5">
-          <div className="flex-1 border-t border-gray-200" />
-          <span className="text-[11px] text-gray-400">or sign up through email</span>
-          <div className="flex-1 border-t border-gray-200" />
+        {/* Divider: or sign up through email */}
+        <div className="relative flex py-6 items-center">
+          <div className="flex-grow border-t border-gray-200"></div>
+          <span className="flex-shrink mx-3 text-xs text-gray-400 font-normal">or sign up through email</span>
+          <div className="flex-grow border-t border-gray-200"></div>
         </div>
 
-        {/* Email / Password Form */}
-        <form onSubmit={handleEmailLogin} className="space-y-3">
-          {error && <p className="text-xs text-red-500">{error}</p>}
-
+        {/* Email & Password Form */}
+        <form onSubmit={handleEmailLogin} className="flex flex-col">
           <input
-            type="email"
+            type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email ID"
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-100 transition-colors"
+            className="w-full bg-[#f4f5f7] border-0 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#00a854] mb-3"
           />
-
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-100 transition-colors"
+            className="w-full bg-[#f4f5f7] border-0 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#00a854] mb-6"
           />
-
           <button
             type="submit"
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-lg py-2.5 mt-2 transition-colors cursor-pointer"
+            disabled={loading}
+            className="w-full bg-[#00a854] hover:bg-[#00964b] text-white font-medium text-sm py-3 rounded-xl transition-colors cursor-pointer shadow-sm text-center"
           >
             Login
           </button>

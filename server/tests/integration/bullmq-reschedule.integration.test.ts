@@ -19,8 +19,6 @@ describe('BullMQ Rescheduling & Crash Recovery - Real Queue Integration Tests', 
       });
     }
     await emailQueue.drain();
-    await emailQueue.close();
-    await redisConnection.quit();
     await prisma.$disconnect();
   });
 

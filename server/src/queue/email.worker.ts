@@ -242,10 +242,18 @@ export const emailWorker = new Worker<EmailJobData>(
       };
     } catch (err: any) {
       const currentAttemptNumber = job.attemptsMade + 1;
-      const isFinalAttempt = currentAttemptNumber >= MAX_ATTEMPTS;
+      const isInfrastructureError =
+        err.message?.includes('Connection is closed') ||
+        err.message?.includes('ECONNREFUSED') ||
+        err.message?.includes('ETIMEDOUT') ||
+        err.message?.includes('Rate limiter service error') ||
+        err.message?.includes('ClusterAllFailedError') ||
+        err.message?.includes('connect ECONNREFUSED');
+
+      const isFinalAttempt = !isInfrastructureError && currentAttemptNumber >= MAX_ATTEMPTS;
 
       console.error(
-        `❌ [Worker] Failed to process email ${emailJobId} (attempt ${currentAttemptNumber}/${MAX_ATTEMPTS}):`,
+        `❌ [Worker] Failed to process email ${emailJobId} (attempt ${currentAttemptNumber}/${MAX_ATTEMPTS}, infra=${isInfrastructureError}):`,
         err.message
       );
 
@@ -259,7 +267,7 @@ export const emailWorker = new Worker<EmailJobData>(
             error: err.message,
             attempts: { increment: 1 },
           },
-        });
+        }).catch((e) => console.warn('DB update warning during final failure:', e.message));
 
         indexEmail({
           id: emailJobId,
@@ -272,7 +280,7 @@ export const emailWorker = new Worker<EmailJobData>(
         }).catch((e) => console.warn('ES indexing warning:', e.message));
       } else {
         console.warn(
-          `🔁 [Worker] Email ${emailJobId} will be retried by BullMQ (attempt ${currentAttemptNumber} of ${MAX_ATTEMPTS} failed).`
+          `🔁 [Worker] Email ${emailJobId} will be retried by BullMQ (attempt ${currentAttemptNumber} failed${isInfrastructureError ? ' due to transient infrastructure outage' : ''}).`
         );
 
         await prisma.emailJob.update({
@@ -281,7 +289,7 @@ export const emailWorker = new Worker<EmailJobData>(
             error: err.message,
             attempts: { increment: 1 },
           },
-        });
+        }).catch((e) => console.warn('DB update warning during attempt record:', e.message));
       }
 
       throw err;

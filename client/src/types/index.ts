@@ -51,7 +51,9 @@ export interface SlackStatus {
 }
 
 export interface User {
-  name: string;
+  id?: string;
+  name?: string | null;
   email: string;
-  avatar: string;
+  avatar?: string | null;
+  googleId?: string | null;
 }

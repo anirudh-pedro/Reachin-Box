@@ -15,73 +15,81 @@ const PRESETS = [
 
 export const SendLaterPopover: React.FC<SendLaterPopoverProps> = ({ onCancel, onDone }) => {
   const [customDate, setCustomDate] = useState('');
-  const [selectedIso, setSelectedIso] = useState<string>('');
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
-  const handlePresetClick = (hour: number) => {
+  const handlePresetClick = (preset: { label: string; hour: number }) => {
+    setSelectedPreset(preset.label);
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(hour, 0, 0, 0);
-    setSelectedIso(tomorrow.toISOString());
-    setCustomDate('');
+    tomorrow.setHours(preset.hour, 0, 0, 0);
+    setCustomDate(tomorrow.toISOString().slice(0, 16));
   };
 
   const handleDone = () => {
     if (customDate) {
       onDone(new Date(customDate).toISOString());
-    } else if (selectedIso) {
-      onDone(selectedIso);
     } else {
-      onCancel();
+      // Default to tomorrow 9:00 AM if done clicked without pick
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      onDone(tomorrow.toISOString());
     }
   };
 
   return (
-    <div
-      className="fixed left-1/2 -translate-x-1/2 top-20 sm:absolute sm:left-auto sm:translate-x-0 sm:right-0 sm:top-full sm:mt-2
-        w-72 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-lg z-30 animate-fade-in-scale overflow-hidden"
-    >
-      <div className="px-4 py-3 border-b border-gray-100">
-        <p className="text-xs font-semibold text-gray-700 mb-2">Send Later</p>
-        <div className="relative">
-          <input
-            type="datetime-local"
-            value={customDate}
-            onChange={(e) => {
-              setCustomDate(e.target.value);
-              setSelectedIso('');
-            }}
-            placeholder="Pick date & time"
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-8 py-1.5 text-xs text-gray-700 focus:outline-none focus:border-emerald-400"
-          />
-          <Calendar className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
+    <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-[#edf0f2] rounded-2xl shadow-xl z-50 p-5 animate-fade-in">
+      {/* Title */}
+      <h3 className="text-sm font-bold text-gray-900 mb-3.5">Send Later</h3>
+
+      {/* Date/Time Input */}
+      <div className="relative mb-3.5">
+        <input
+          type="datetime-local"
+          value={customDate}
+          onChange={(e) => {
+            setCustomDate(e.target.value);
+            setSelectedPreset(null);
+          }}
+          className="w-full bg-[#f4f5f7] text-xs text-gray-700 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a854]"
+        />
+        {!customDate && (
+          <div className="absolute inset-0 bg-[#f4f5f7] rounded-xl px-3.5 py-2.5 flex items-center justify-between pointer-events-none text-xs text-gray-400">
+            <span>Pick date & time</span>
+            <Calendar className="w-4 h-4 text-gray-400" />
+          </div>
+        )}
       </div>
 
-      <div className="py-1">
-        {PRESETS.map((preset) => (
+      {/* Quick Presets matching Figma */}
+      <div className="space-y-2 py-1 mb-4">
+        {PRESETS.map((p) => (
           <button
-            key={preset.label}
+            key={p.label}
             type="button"
-            onClick={() => handlePresetClick(preset.hour)}
-            className="w-full text-left px-4 py-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
+            onClick={() => handlePresetClick(p)}
+            className={`w-full text-left text-xs py-1 transition-colors cursor-pointer block ${
+              selectedPreset === p.label ? 'font-semibold text-[#00a854]' : 'text-gray-600 hover:text-black'
+            }`}
           >
-            {preset.label}
+            {p.label}
           </button>
         ))}
       </div>
 
-      <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-100">
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-3 pt-2">
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-50 transition-colors cursor-pointer"
+          className="text-xs font-medium text-gray-700 hover:text-black transition-colors cursor-pointer px-2"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={handleDone}
-          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors cursor-pointer"
+          className="px-5 py-1 rounded-full border border-[#00a854] text-[#00a854] font-semibold text-xs hover:bg-[#eaf5ed]/50 transition-colors cursor-pointer"
         >
           Done
         </button>

@@ -7,14 +7,18 @@ import {
   disconnectSlack,
   testSlackNotification,
 } from '../controllers/slack.controller.js';
+import { requireAuth } from '../middleware/auth.middleware.js';
 
 const router = Router();
 
-router.get('/url', getSlackAuthUrl);
+// Public callback endpoint (receives browser redirect from Slack with code & state)
 router.get('/callback', handleSlackCallback);
-router.get('/status', getSlackStatus);
-router.post('/connect-webhook', connectSlackWebhook);
-router.post('/disconnect', disconnectSlack);
-router.post('/test', testSlackNotification);
+
+// Authenticated endpoints: require active ReachInbox user session
+router.get('/url', requireAuth, getSlackAuthUrl);
+router.get('/status', requireAuth, getSlackStatus);
+router.post('/connect-webhook', requireAuth, connectSlackWebhook);
+router.post('/disconnect', requireAuth, disconnectSlack);
+router.post('/test', requireAuth, testSlackNotification);
 
 export default router;
