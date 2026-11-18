@@ -37,6 +37,48 @@ export function App() {
   const [scheduledPagination, setScheduledPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
   const [sentPagination, setSentPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
 
+  // Persistent Starred & Archived state
+  const [starredIds, setStarredIds] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem('reachinbox_starred_emails');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [archivedIds, setArchivedIds] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem('reachinbox_archived_emails');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleToggleStar = (emailId: string) => {
+    setStarredIds((prev) => {
+      const updated = { ...prev, [emailId]: !prev[emailId] };
+      localStorage.setItem('reachinbox_starred_emails', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleArchiveEmail = (emailId: string) => {
+    setArchivedIds((prev) => {
+      const updated = { ...prev, [emailId]: true };
+      localStorage.setItem('reachinbox_archived_emails', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleDeleteEmail = async (emailId: string) => {
+    await api.deleteEmail(emailId).catch(() => {});
+    setScheduledEmails((prev) => prev.filter((e) => e.id !== emailId));
+    setSentEmails((prev) => prev.filter((e) => e.id !== emailId));
+    fetchData();
+  };
+
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch initial dashboard metadata
@@ -232,6 +274,10 @@ export function App() {
           email={selectedEmail}
           onBack={() => setView('list')}
           onOpenMobileNav={() => setMobileNavOpen(true)}
+          isStarred={Boolean(starredIds[selectedEmail.id])}
+          onToggleStar={() => handleToggleStar(selectedEmail.id)}
+          onArchive={() => handleArchiveEmail(selectedEmail.id)}
+          onDelete={() => handleDeleteEmail(selectedEmail.id)}
         />
       ) : (
         <EmailListView
@@ -249,6 +295,9 @@ export function App() {
           onPageChange={(p) => (activeTab === 'scheduled' ? fetchScheduled(p, scheduledSearch) : fetchSent(p, sentSearch))}
           onSelectEmail={handleSelectEmail}
           onOpenMobileNav={() => setMobileNavOpen(true)}
+          starredIds={starredIds}
+          onToggleStar={handleToggleStar}
+          archivedIds={archivedIds}
         />
       )}
 

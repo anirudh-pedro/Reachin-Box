@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
-import { addEmailToQueue } from '../queue/email.queue.js';
+import { addEmailToQueue, emailQueue } from '../queue/email.queue.js';
 import { getOrCreateDefaultSender } from '../services/mail.service.js';
-import { indexEmail, searchEmails } from '../services/elasticsearch.service.js';
+import { indexEmail, searchEmails, deleteIndexedEmail } from '../services/elasticsearch.service.js';
 
 // Grace window for explicit startTime values: allows for request latency / clock skew
 // between the client and server without rejecting a timestamp the user genuinely meant
@@ -338,5 +338,46 @@ export async function getSenders(req: Request, res: Response): Promise<void> {
   } catch (error: any) {
     console.error('Error fetching senders:', error);
     res.status(500).json({ error: 'Failed to fetch senders', message: error.message });
+  }
+}
+
+/**
+ * Permanently deletes an email job from database, active BullMQ queue, and Elasticsearch.
+ * DELETE /api/emails/:id
+ */
+export async function deleteEmail(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const email = await prisma.emailJob.findUnique({
+      where: { id },
+    });
+
+    if (!email || (req.user && email.userId && email.userId !== req.user.id)) {
+      res.status(404).json({ error: 'Email not found', message: `No email job exists with id ${id}` });
+      return;
+    }
+
+    // Cancel BullMQ job if delayed or waiting
+    if (email.jobId) {
+      try {
+        const job = await emailQueue.getJob(email.jobId);
+        if (job) {
+          await job.remove();
+        }
+      } catch (err: any) {
+        console.warn(`Could not remove queue job ${email.jobId}:`, err.message);
+      }
+    }
+
+    // Delete from Elasticsearch
+    await deleteIndexedEmail(id);
+
+    // Delete from PostgreSQL
+    await prisma.emailJob.delete({ where: { id } });
+
+    res.json({ success: true, message: 'Email deleted successfully' });
+  } catch (error: any) {
+    console.error('Error deleting email:', error);
+    res.status(500).json({ error: 'Failed to delete email', message: error.message });
   }
 }

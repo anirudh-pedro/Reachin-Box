@@ -6,6 +6,10 @@ interface EmailDetailViewProps {
   email: EmailJob;
   onBack: () => void;
   onOpenMobileNav: () => void;
+  isStarred?: boolean;
+  onToggleStar?: () => void;
+  onArchive?: () => void;
+  onDelete?: () => Promise<void> | void;
 }
 
 function formatDetailDate(value?: string | null): string {
@@ -19,9 +23,17 @@ function formatDetailDate(value?: string | null): string {
   });
 }
 
-export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack, onOpenMobileNav }) => {
-  const [isStarred, setIsStarred] = useState(false);
+export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
+  email,
+  onBack,
+  onOpenMobileNav,
+  isStarred = false,
+  onToggleStar,
+  onArchive,
+  onDelete,
+}) => {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const senderEmail = email.sender?.email || 'sender@example.com';
   const senderName = email.sender?.name || (senderEmail.includes('@') ? senderEmail.split('@')[0] : 'Amanda Clark');
@@ -31,6 +43,40 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack,
   const showNotification = (msg: string) => {
     setActionNotice(msg);
     setTimeout(() => setActionNotice(null), 2500);
+  };
+
+  const handleStarClick = () => {
+    if (onToggleStar) {
+      onToggleStar();
+      showNotification(!isStarred ? 'Email starred' : 'Email unstarred');
+    }
+  };
+
+  const handleArchiveClick = () => {
+    if (onArchive) {
+      onArchive();
+    }
+    showNotification('Email archived');
+    setTimeout(() => {
+      onBack();
+    }, 600);
+  };
+
+  const handleDeleteClick = async () => {
+    setIsDeleting(true);
+    showNotification('Deleting email...');
+    try {
+      if (onDelete) {
+        await onDelete();
+      }
+      showNotification('Email deleted');
+      setTimeout(() => {
+        onBack();
+      }, 500);
+    } catch {
+      showNotification('Failed to delete email');
+      setIsDeleting(false);
+    }
   };
 
   const isFigmaSample =
@@ -66,37 +112,41 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack,
 
         {/* Right action icons */}
         <div className="flex items-center gap-4 text-gray-400 shrink-0">
+          {/* Star Button */}
           <button
             type="button"
-            onClick={() => setIsStarred((v) => !v)}
-            title={isStarred ? 'Unstar' : 'Star'}
-            className="hover:text-amber-500 transition-colors cursor-pointer"
+            onClick={handleStarClick}
+            title={isStarred ? 'Unstar email' : 'Star email'}
+            className="hover:text-amber-500 transition-colors cursor-pointer p-1"
           >
             <Star
-              className={`w-4 h-4 ${
+              className={`w-4 h-4 transition-colors ${
                 isStarred ? 'text-amber-400 fill-amber-400' : 'text-gray-400 hover:text-amber-500'
               }`}
             />
           </button>
+
+          {/* Archive Button */}
           <button
             type="button"
-            onClick={() => showNotification('Email archived')}
-            title="Archive"
-            className="hover:text-gray-700 transition-colors cursor-pointer"
+            onClick={handleArchiveClick}
+            title="Archive email"
+            className="hover:text-gray-700 transition-colors cursor-pointer p-1"
           >
             <Archive className="w-4 h-4" />
           </button>
+
+          {/* Delete Button */}
           <button
             type="button"
-            onClick={() => {
-              showNotification('Email removed');
-              setTimeout(onBack, 600);
-            }}
-            title="Delete"
-            className="hover:text-red-500 transition-colors cursor-pointer"
+            onClick={handleDeleteClick}
+            disabled={isDeleting}
+            title="Delete email"
+            className="hover:text-red-500 transition-colors cursor-pointer p-1 disabled:opacity-40"
           >
             <Trash2 className="w-4 h-4" />
           </button>
+
           <img
             src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces"
             alt="Profile"

@@ -7,6 +7,7 @@ import {
   getStats,
   getSenders,
   getEmailById,
+  deleteEmail,
 } from '../controllers/email.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
 
@@ -22,5 +23,6 @@ router.get('/search', searchEmailsHandler);
 router.get('/stats', getStats);
 router.get('/senders', getSenders);
 router.get('/:id', getEmailById);
+router.delete('/:id', deleteEmail);
 
 export default router;

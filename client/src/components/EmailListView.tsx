@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Filter, RefreshCw, Star, Loader2, Inbox, Clock, AlertTriangle, Menu, ArrowUpDown, Check } from 'lucide-react';
+import { Search, Filter, RefreshCw, Star, Loader2, Inbox, Clock, AlertTriangle, Menu, ArrowUpDown, Check, Archive } from 'lucide-react';
 import type { EmailJob } from '../types';
 
 interface Pagination {
@@ -20,6 +20,9 @@ interface EmailListViewProps {
   onPageChange: (p: number) => void;
   onSelectEmail: (email: EmailJob) => void;
   onOpenMobileNav: () => void;
+  starredIds?: Record<string, boolean>;
+  onToggleStar?: (id: string) => void;
+  archivedIds?: Record<string, boolean>;
 }
 
 function formatTime(value?: string | null): string {
@@ -49,19 +52,27 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
   onPageChange,
   onSelectEmail,
   onOpenMobileNav,
+  starredIds = {},
+  onToggleStar,
+  archivedIds = {},
 }) => {
-  const [starredIds, setStarredIds] = useState<Record<string, boolean>>({});
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [filterStarredOnly, setFilterStarredOnly] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [sortByNewest, setSortByNewest] = useState(true);
 
   const toggleStar = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setStarredIds((prev) => ({ ...prev, [id]: !prev[id] }));
+    if (onToggleStar) {
+      onToggleStar(id);
+    }
   };
 
-  // Local filtering & sorting if applied
+  // Local filtering & sorting
   let displayedEmails = [...emails];
+  if (!showArchived) {
+    displayedEmails = displayedEmails.filter((e) => !archivedIds[e.id]);
+  }
   if (filterStarredOnly) {
     displayedEmails = displayedEmails.filter((e) => starredIds[e.id]);
   }
@@ -111,7 +122,7 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
               title="Filter"
               onClick={() => setShowFilterMenu((v) => !v)}
               className={`p-2 rounded-full transition-colors cursor-pointer ${
-                filterStarredOnly || showFilterMenu
+                filterStarredOnly || showArchived || showFilterMenu
                   ? 'text-[#00a854] bg-[#eaf5ed]'
                   : 'hover:text-gray-700 hover:bg-[#f4f5f7]'
               }`}
@@ -121,7 +132,7 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
 
             {/* Filter Dropdown */}
             {showFilterMenu && (
-              <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-[#edf0f2] rounded-xl shadow-lg z-30 py-2 animate-fade-in text-xs text-gray-700">
+              <div className="absolute right-0 top-full mt-2 w-52 bg-white border border-[#edf0f2] rounded-xl shadow-lg z-30 py-2 animate-fade-in text-xs text-gray-700">
                 <button
                   type="button"
                   onClick={() => {
@@ -136,6 +147,22 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
                   </span>
                   {filterStarredOnly && <Check className="w-3.5 h-3.5 text-[#00a854]" />}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowArchived((v) => !v);
+                    setShowFilterMenu(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-[#f4f5f7] cursor-pointer border-t border-gray-50"
+                >
+                  <span className="flex items-center gap-2">
+                    <Archive className="w-3.5 h-3.5 text-gray-500" />
+                    <span>Show archived</span>
+                  </span>
+                  {showArchived && <Check className="w-3.5 h-3.5 text-[#00a854]" />}
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -177,6 +204,8 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
             <p className="text-sm font-medium text-gray-700">
               {filterStarredOnly
                 ? 'No starred emails found'
+                : showArchived
+                ? 'No archived emails found'
                 : mode === 'scheduled'
                 ? 'No scheduled emails found'
                 : 'No sent emails yet'}
@@ -195,6 +224,7 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
             const capitalizedRecipient =
               recipientName.charAt(0).toUpperCase() + recipientName.slice(1);
             const isStarred = Boolean(starredIds[job.id]);
+            const isArchived = Boolean(archivedIds[job.id]);
 
             return (
               <div
@@ -208,7 +238,11 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
                 </span>
 
                 {/* Status Badge */}
-                {mode === 'scheduled' ? (
+                {isArchived ? (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs font-medium shrink-0">
+                    Archived
+                  </span>
+                ) : mode === 'scheduled' ? (
                   job.status === 'RATE_LIMITED' ? (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium shrink-0">
                       <AlertTriangle className="w-3 h-3 text-amber-600" />

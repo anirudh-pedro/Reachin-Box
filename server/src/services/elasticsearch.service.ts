@@ -243,3 +243,19 @@ export async function searchEmails(params: SearchParams) {
     },
   };
 }
+
+/**
+ * Removes an email document from Elasticsearch index.
+ */
+export async function deleteIndexedEmail(id: string): Promise<void> {
+  if (!isElasticsearchAvailable) return;
+  try {
+    await esClient.delete({
+      index: EMAILS_INDEX,
+      id,
+    });
+  } catch {
+    // Graceful no-op if document does not exist in ES
+  }
+}
+

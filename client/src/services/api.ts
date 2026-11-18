@@ -158,6 +158,11 @@ export const api = {
     return res.data.senders;
   },
 
+  async deleteEmail(id: string) {
+    const res = await axios.delete<{ success: boolean; message: string }>(`${API_BASE}/emails/${id}`);
+    return res.data;
+  },
+
   // Slack
   async getSlackAuthUrl() {
     const res = await axios.get<{ url: string; state?: string }>(`${API_BASE}/auth/slack/url`);
