@@ -7,6 +7,8 @@ import {
   checkAndIncrementHourlyLimit,
   checkSenderDelayThrottle,
   getNextHourStaggeredTimestamp,
+  getHourlyCount,
+  decrementHourlyLimit,
   rateLimitEvents,
 } from '../services/rate-limiter.service.js';
 import { indexEmail } from '../services/elasticsearch.service.js';
@@ -71,20 +73,22 @@ export const emailWorker = new Worker<EmailJobData>(
       return { skipped: true, reason: 'Locked by concurrent worker' };
     }
 
+    let hourlyQuotaConsumed = false;
+    let currentSenderId = 'default';
+
     try {
       const effectiveSenderId = senderId || emailRecord.senderId || 'default';
+      currentSenderId = effectiveSenderId;
       const effectiveHourlyLimit = hourlyLimit || emailRecord.hourlyLimit || emailRecord.sender?.hourlyLimit || 200;
       const effectiveDelaySeconds =
         delayBetweenEmails !== undefined
           ? delayBetweenEmails
           : emailRecord.delayBetweenEmails ?? emailRecord.sender?.delaySeconds ?? 2;
 
-      // 2. Atomic Hourly Rate Limit Check
-      const rateLimitCheck = await checkAndIncrementHourlyLimit(effectiveSenderId, effectiveHourlyLimit);
-
-      if (!rateLimitCheck.allowed) {
+      // Helper to handle rescheduling when rate limit is exceeded
+      const handleRateLimitExceeded = async (rlCheck: { currentCount: number; shouldAlert: boolean }) => {
         console.warn(
-          `🚨 [Worker] Rate limit REACHED for sender ${effectiveSenderId} (${rateLimitCheck.currentCount}/${effectiveHourlyLimit} this hour).`
+          `🚨 [Worker] Rate limit REACHED for sender ${effectiveSenderId} (${rlCheck.currentCount}/${effectiveHourlyLimit} this hour).`
         );
 
         // Staggered order-preserving schedule time in the next hour
@@ -119,14 +123,14 @@ export const emailWorker = new Worker<EmailJobData>(
         }).catch((e) => console.warn('ES indexing warning:', e.message));
 
         // Emit Slack alert ONLY on the first time the limit was tripped in this window
-        if (rateLimitCheck.shouldAlert) {
+        if (rlCheck.shouldAlert) {
           console.log(`🔔 [Worker] Triggering Slack rate-limit alert for sender ${effectiveSenderId}...`);
           rateLimitEvents.emit('RATE_LIMIT_TRIPPED', {
             senderId: effectiveSenderId,
             senderEmail: emailRecord.sender?.email || 'default@reachinbox.test',
             userId: userId || emailRecord.userId,
             hourlyLimit: effectiveHourlyLimit,
-            currentCount: rateLimitCheck.currentCount,
+            currentCount: rlCheck.currentCount,
             emailJobId,
             nextHourTimestamp,
           });
@@ -147,13 +151,21 @@ export const emailWorker = new Worker<EmailJobData>(
           newJobId: newQueueJobId,
           message: 'Rate limit reached. Rescheduled to next hour window.',
         };
+      };
+
+      // 1. Fast-path check: Is the hourly limit already full before reserving a delay slot?
+      const currentHourlyCount = await getHourlyCount(effectiveSenderId);
+      if (currentHourlyCount >= effectiveHourlyLimit) {
+        // Hourly limit is already exhausted: record alert via atomic check and reschedule
+        const rateLimitCheck = await checkAndIncrementHourlyLimit(effectiveSenderId, effectiveHourlyLimit);
+        return await handleRateLimitExceeded(rateLimitCheck);
       }
 
-      // 3. Atomic Per-Sender Inter-Send Delay Throttle
+      // 2. Atomic Per-Sender Inter-Send Delay Throttle
       const throttleCheck = await checkSenderDelayThrottle(effectiveSenderId, effectiveDelaySeconds);
       if (!throttleCheck.allowed) {
         if (throttleCheck.waitMs > 150) {
-          // If wait time is substantial, reschedule via BullMQ rather than blocking worker thread
+          // If wait time is substantial, reschedule via BullMQ without consuming hourly quota
           const nextRescheduleCount = (job.data.rescheduleCount || 0) + 1;
           const newQueueJobId = `${emailJobId}:throttle:${nextRescheduleCount}`;
 
@@ -185,6 +197,15 @@ export const emailWorker = new Worker<EmailJobData>(
           await new Promise((resolve) => setTimeout(resolve, throttleCheck.waitMs));
         }
       }
+
+      // 3. Atomic Hourly Rate Limit Authorization via Redis Lua
+      const rateLimitCheck = await checkAndIncrementHourlyLimit(effectiveSenderId, effectiveHourlyLimit);
+      if (!rateLimitCheck.allowed) {
+        return await handleRateLimitExceeded(rateLimitCheck);
+      }
+
+      // Mark that a quota slot has been atomically reserved
+      hourlyQuotaConsumed = true;
 
       // 4. Update status to PROCESSING atomically
       await prisma.emailJob.updateMany({
@@ -241,6 +262,15 @@ export const emailWorker = new Worker<EmailJobData>(
         sentAt: updated.sentAt,
       };
     } catch (err: any) {
+      if (hourlyQuotaConsumed) {
+        try {
+          await decrementHourlyLimit(currentSenderId);
+          console.log(`↩️ [Worker] Refunded hourly rate limit slot for sender ${currentSenderId} after send failure.`);
+        } catch (decrErr: any) {
+          console.warn(`Failed to refund hourly rate limit for sender ${currentSenderId}:`, decrErr.message);
+        }
+      }
+
       const currentAttemptNumber = job.attemptsMade + 1;
       const isInfrastructureError =
         err.message?.includes('Connection is closed') ||

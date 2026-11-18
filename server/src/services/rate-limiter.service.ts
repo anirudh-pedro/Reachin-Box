@@ -214,15 +214,66 @@ export async function getNextHourStaggeredTimestamp(
 }
 
 /**
- * Resets rate limit counters and throttle keys for testing purposes
+ * Gets the current consumed hourly send count for a sender.
+ */
+export async function getHourlyCount(senderId: string = 'default'): Promise<number> {
+  const hourKey = getHourKey();
+  const counterKey = `ratelimit:emails:${senderId}:${hourKey}`;
+  const val = await redisConnection.get(counterKey);
+  return val ? parseInt(val, 10) : 0;
+}
+
+/**
+ * Sets the hourly send count for a sender (useful for testing existing Redis states).
+ */
+export async function setHourlyCount(senderId: string = 'default', count: number): Promise<void> {
+  const hourKey = getHourKey();
+  const counterKey = `ratelimit:emails:${senderId}:${hourKey}`;
+  await redisConnection.set(counterKey, count.toString(), 'EX', 7200);
+}
+
+/**
+ * Decrements the hourly send count for a sender by 1 if an unhandled delivery failure
+ * occurs after quota was atomically incremented, ensuring quota slots are not burned.
+ */
+export async function decrementHourlyLimit(senderId: string = 'default'): Promise<number> {
+  const hourKey = getHourKey();
+  const counterKey = `ratelimit:emails:${senderId}:${hourKey}`;
+  const current = await redisConnection.get(counterKey);
+  if (!current || parseInt(current, 10) <= 0) {
+    return 0;
+  }
+  const nextVal = await redisConnection.decr(counterKey);
+  return Math.max(0, nextVal);
+}
+
+/**
+ * Resets rate limit counters and throttle keys for testing purposes across all hours and cursors.
  */
 export async function resetSenderRateLimit(senderId: string = 'default'): Promise<void> {
   const hourKey = getHourKey();
   const redisKey = `ratelimit:emails:${senderId}:${hourKey}`;
   const alertKey = `ratelimit:alert:${senderId}:${hourKey}`;
   const throttleKey = `throttle:next_send:${senderId}`;
-  await redisConnection.del(redisKey);
-  await redisConnection.del(alertKey);
-  await redisConnection.del(throttleKey);
-  await redisConnection.del(`throttle:last_send:${senderId}`);
+
+  // Direct deletion of known current keys
+  await redisConnection.del(redisKey, alertKey, throttleKey, `throttle:last_send:${senderId}`);
+
+  // Comprehensive wildcard cleanup for test isolation across hours and stagger cursors
+  const patterns = [
+    `ratelimit:emails:${senderId}:*`,
+    `ratelimit:alert:${senderId}:*`,
+    `ratelimit:stagger_cursor:${senderId}:*`,
+    `throttle:*${senderId}*`,
+  ];
+  for (const pattern of patterns) {
+    try {
+      const keys = await redisConnection.keys(pattern);
+      if (keys.length > 0) {
+        await redisConnection.del(...keys);
+      }
+    } catch {
+      // Ignore keys scanning errors in restricted environments
+    }
+  }
 }
