@@ -20,6 +20,37 @@ const MAX_ATTEMPTS = 3; // Keep in sync with emailQueue's defaultJobOptions.atte
 const workerRedis = new Redis(redisConfig);
 const distributedLock = new DistributedLock(workerRedis);
 
+export interface WorkerAuditLog {
+  emailJobId: string;
+  bullMqJobId: string;
+  recipient: string;
+  currentStatus: string;
+  scheduledTime: string;
+  actualWorkerExecutionTime: string;
+  hourlyQuotaCount: number;
+  hourlyLimit: number;
+  rateLimitDecision: 'AUTHORIZED' | 'RATE_LIMITED' | 'SKIPPED' | 'THROTTLED';
+  senderNextAvailableTime?: string | null;
+  rescheduleReason?: string | null;
+  nextExecutionTimestamp?: string | null;
+}
+
+export function logWorkerExecutionAudit(log: WorkerAuditLog): void {
+  console.log(`\n📋 [WORKER_EXECUTION_AUDIT] ========================================`);
+  console.log(`• Email ID:                    ${log.emailJobId}`);
+  console.log(`• BullMQ Job ID:               ${log.bullMqJobId}`);
+  console.log(`• Recipient:                   ${log.recipient}`);
+  console.log(`• Current Status:              ${log.currentStatus}`);
+  console.log(`• Scheduled Time:              ${log.scheduledTime}`);
+  console.log(`• Actual Execution Time:       ${log.actualWorkerExecutionTime}`);
+  console.log(`• Hourly Quota Count:          ${log.hourlyQuotaCount} / ${log.hourlyLimit}`);
+  console.log(`• Rate Limit Decision:         ${log.rateLimitDecision}`);
+  console.log(`• Sender Next Available Time:  ${log.senderNextAvailableTime || 'N/A'}`);
+  console.log(`• Reschedule Reason:           ${log.rescheduleReason || 'None'}`);
+  console.log(`• Next Execution Timestamp:    ${log.nextExecutionTimestamp || 'N/A'}`);
+  console.log(`===================================================================\n`);
+}
+
 export const emailWorker = new Worker<EmailJobData>(
   EMAIL_QUEUE_NAME,
   async (job: Job<EmailJobData>) => {
@@ -45,6 +76,30 @@ export const emailWorker = new Worker<EmailJobData>(
     if (emailRecord.status === 'FAILED') {
       console.warn(`🛑 [Worker] Email ${emailJobId} is permanently marked as FAILED. Skipping.`);
       return { skipped: true, reason: 'Permanently failed' };
+    }
+
+    const nowMs = Date.now();
+    // Stability Guard: If the email is already in RATE_LIMITED status and its scheduled window has not arrived yet, skip!
+    // Prevents duplicate executions from repeatedly advancing timestamps or mutating the schedule.
+    if (emailRecord.status === 'RATE_LIMITED' && emailRecord.scheduledAt.getTime() > nowMs + 500) {
+      console.log(
+        `⏳ [Worker] Email ${emailJobId} is already RATE_LIMITED and waiting for window at ${emailRecord.scheduledAt.toISOString()}. Skipping premature execution.`
+      );
+      logWorkerExecutionAudit({
+        emailJobId,
+        bullMqJobId: job.id!,
+        recipient: emailRecord.recipient,
+        currentStatus: 'RATE_LIMITED',
+        scheduledTime: emailRecord.scheduledAt.toISOString(),
+        actualWorkerExecutionTime: new Date().toISOString(),
+        hourlyQuotaCount: await getHourlyCount(emailRecord.senderId || 'default'),
+        hourlyLimit: emailRecord.hourlyLimit || 200,
+        rateLimitDecision: 'SKIPPED',
+        senderNextAvailableTime: emailRecord.scheduledAt.toISOString(),
+        rescheduleReason: `Already scheduled for next window at ${emailRecord.scheduledAt.toISOString()}`,
+        nextExecutionTimestamp: emailRecord.scheduledAt.toISOString(),
+      });
+      return { skipped: true, reason: 'Scheduled for future window' };
     }
 
     // Versioning Check: If the DB's active jobId belongs to a newer execution, verify existence
@@ -145,6 +200,21 @@ export const emailWorker = new Worker<EmailJobData>(
           newQueueJobId
         );
 
+        logWorkerExecutionAudit({
+          emailJobId,
+          bullMqJobId: job.id!,
+          recipient,
+          currentStatus: 'RATE_LIMITED',
+          scheduledTime: emailRecord.scheduledAt.toISOString(),
+          actualWorkerExecutionTime: new Date().toISOString(),
+          hourlyQuotaCount: rlCheck.currentCount,
+          hourlyLimit: effectiveHourlyLimit,
+          rateLimitDecision: 'RATE_LIMITED',
+          senderNextAvailableTime: nextHourTimestamp.toISOString(),
+          rescheduleReason: `Hourly sending quota reached (${rlCheck.currentCount}/${effectiveHourlyLimit}). Rescheduled to next window.`,
+          nextExecutionTimestamp: nextHourTimestamp.toISOString(),
+        });
+
         return {
           rateLimited: true,
           rescheduledTo: nextHourTimestamp,
@@ -164,19 +234,25 @@ export const emailWorker = new Worker<EmailJobData>(
       // 2. Atomic Per-Sender Inter-Send Delay Throttle
       const throttleCheck = await checkSenderDelayThrottle(effectiveSenderId, effectiveDelaySeconds);
       if (!throttleCheck.allowed) {
-        if (throttleCheck.waitMs > 150) {
-          // If wait time is substantial, reschedule via BullMQ without consuming hourly quota
+        if (throttleCheck.waitMs <= 10000) {
+          // In-process pacing: wait for the reserved slot without touching DB or BullMQ
+          console.log(
+            `⏱️ [Worker] Inter-send pacing for sender ${effectiveSenderId}: waiting ${throttleCheck.waitMs}ms until reserved slot...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, throttleCheck.waitMs));
+        } else {
+          // Large wait (> 10s): only reschedule via BullMQ if wait exceeds in-process threshold
           const nextRescheduleCount = (job.data.rescheduleCount || 0) + 1;
           const newQueueJobId = `${emailJobId}:throttle:${nextRescheduleCount}`;
 
           console.log(
-            `⏱️ [Worker] Inter-send throttle: spacing sender ${effectiveSenderId} by ${throttleCheck.waitMs}ms. Rescheduling via BullMQ (new jobId: ${newQueueJobId}).`
+            `⏱️ [Worker] Extended inter-send throttle: spacing sender ${effectiveSenderId} by ${throttleCheck.waitMs}ms. Rescheduling via BullMQ (new jobId: ${newQueueJobId}).`
           );
 
+          // DO NOT overwrite scheduledAt in DB - preserve user's original schedule time
           await prisma.emailJob.update({
             where: { id: emailJobId },
             data: {
-              scheduledAt: throttleCheck.targetTimestamp,
               jobId: newQueueJobId,
             },
           });
@@ -187,14 +263,26 @@ export const emailWorker = new Worker<EmailJobData>(
             newQueueJobId
           );
 
+          logWorkerExecutionAudit({
+            emailJobId,
+            bullMqJobId: job.id!,
+            recipient,
+            currentStatus: 'THROTTLED',
+            scheduledTime: emailRecord.scheduledAt.toISOString(),
+            actualWorkerExecutionTime: new Date().toISOString(),
+            hourlyQuotaCount: currentHourlyCount,
+            hourlyLimit: effectiveHourlyLimit,
+            rateLimitDecision: 'THROTTLED',
+            senderNextAvailableTime: throttleCheck.targetTimestamp.toISOString(),
+            rescheduleReason: `Inter-send pacing wait exceeded 10s (${throttleCheck.waitMs}ms). Delayed via BullMQ.`,
+            nextExecutionTimestamp: throttleCheck.targetTimestamp.toISOString(),
+          });
+
           return {
             throttled: true,
             rescheduledTo: throttleCheck.targetTimestamp,
             newJobId: newQueueJobId,
           };
-        } else if (throttleCheck.waitMs > 0) {
-          // Very short micro-delay (< 150ms) can be waited directly without queue overhead
-          await new Promise((resolve) => setTimeout(resolve, throttleCheck.waitMs));
         }
       }
 
@@ -254,6 +342,21 @@ export const emailWorker = new Worker<EmailJobData>(
       if (result.previewUrl) {
         console.log(`🔗 [Worker] Ethereal Preview URL: ${result.previewUrl}`);
       }
+
+      logWorkerExecutionAudit({
+        emailJobId,
+        bullMqJobId: job.id!,
+        recipient,
+        currentStatus: 'SENT',
+        scheduledTime: emailRecord.scheduledAt.toISOString(),
+        actualWorkerExecutionTime: new Date().toISOString(),
+        hourlyQuotaCount: rateLimitCheck.currentCount,
+        hourlyLimit: effectiveHourlyLimit,
+        rateLimitDecision: 'AUTHORIZED',
+        senderNextAvailableTime: throttleCheck.targetTimestamp.toISOString(),
+        rescheduleReason: null,
+        nextExecutionTimestamp: null,
+      });
 
       return {
         success: true,
