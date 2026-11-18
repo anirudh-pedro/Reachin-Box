@@ -1,10 +1,18 @@
 import { Client } from '@elastic/elasticsearch';
 import { prisma } from '../config/prisma.js';
 
-const node = process.env.ELASTICSEARCH_NODE || 'http://127.0.0.1:9200';
+const esNode = process.env.ELASTICSEARCH_URL || process.env.ELASTICSEARCH_NODE || 'http://127.0.0.1:9200';
+const esUsername = process.env.ELASTICSEARCH_USERNAME;
+const esPassword = process.env.ELASTICSEARCH_PASSWORD;
+const esApiKey = process.env.ELASTICSEARCH_API_KEY;
 
 export const esClient = new Client({
-  node,
+  node: esNode,
+  auth: esApiKey
+    ? { apiKey: esApiKey }
+    : esUsername && esPassword
+    ? { username: esUsername, password: esPassword }
+    : undefined,
   requestTimeout: 3000,
   maxRetries: 1,
 });

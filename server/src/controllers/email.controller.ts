@@ -347,7 +347,11 @@ export async function getSenders(req: Request, res: Response): Promise<void> {
  */
 export async function deleteEmail(req: Request, res: Response): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) {
+      res.status(400).json({ error: 'Invalid ID', message: 'Email ID is required' });
+      return;
+    }
     const email = await prisma.emailJob.findUnique({
       where: { id },
     });

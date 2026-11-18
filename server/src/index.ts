@@ -21,16 +21,20 @@ const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Whether this process should also run the BullMQ worker in-process.
-// Defaults to true so local `npm run dev` behavior is completely unchanged.
-// Set to "false" in production when the worker runs as its own container/process
-// (see server/src/worker.ts and docker-compose.prod.yml).
-const RUN_WORKER_IN_PROCESS = process.env.RUN_WORKER_IN_PROCESS !== 'false';
+// Defaults to true for local development. In production, set to "false" on Render
+// Web Service so only the dedicated Render Background Worker executes jobs.
+const RUN_WORKER_IN_PROCESS =
+  process.env.RUN_WORKER_IN_PROCESS === 'true' ||
+  (process.env.NODE_ENV !== 'production' && process.env.RUN_WORKER_IN_PROCESS !== 'false');
 let emailWorkerRef: import('bullmq').Worker | null = null;
 
-// CORS: supports one or more allowed origins (comma-separated), e.g. for a Vercel
-// frontend URL in production. Falls back to FRONTEND_URL (single origin, existing
-// behavior) and then to the local dev default, so no existing deployment breaks.
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
+// CORS: supports CORS_ORIGIN, ALLOWED_ORIGINS (comma-separated), or FRONTEND_URL.
+const allowedOrigins = (
+  process.env.CORS_ORIGIN ||
+  process.env.ALLOWED_ORIGINS ||
+  process.env.FRONTEND_URL ||
+  'http://localhost:5173'
+)
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
@@ -66,9 +70,9 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Real dependency health check: verifies PostgreSQL and Redis are actually reachable,
-// not just that the HTTP server is up.
+// Real dependency health check: verifies PostgreSQL and Redis are reachable
 app.get('/health', async (req, res) => {
+  const isProd = process.env.NODE_ENV === 'production';
   const dependencies: { postgres: boolean; redis: boolean } = {
     postgres: false,
     redis: false,
@@ -79,17 +83,17 @@ app.get('/health', async (req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     dependencies.postgres = true;
   } catch (err: any) {
-    errors.postgres = err.message;
+    errors.postgres = isProd ? 'PostgreSQL unavailable' : err.message;
   }
 
   try {
     const pong = await redisConnection.ping();
     dependencies.redis = pong === 'PONG';
     if (!dependencies.redis) {
-      errors.redis = `Unexpected PING response: ${pong}`;
+      errors.redis = isProd ? 'Redis unavailable' : `Unexpected PING response: ${pong}`;
     }
   } catch (err: any) {
-    errors.redis = err.message;
+    errors.redis = isProd ? 'Redis unavailable' : err.message;
   }
 
   const allHealthy = dependencies.postgres && dependencies.redis;
@@ -113,6 +117,24 @@ app.get('/', (req, res) => {
       slackAuth: '/api/auth/slack',
       queueDashboard: '/admin/queues',
     },
+  });
+});
+
+// Production-safe centralized error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const statusCode = err.status || err.statusCode || 500;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  console.error(`❌ [Unhandled Error] ${req.method} ${req.url}:`, isProduction ? err.message : err);
+
+  res.status(statusCode).json({
+    error: err.name || 'InternalServerError',
+    message: isProduction
+      ? statusCode === 500
+        ? 'An unexpected internal server error occurred'
+        : err.message
+      : err.message,
+    ...(isProduction ? {} : { stack: err.stack }),
   });
 });
 

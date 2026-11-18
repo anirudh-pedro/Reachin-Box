@@ -27,7 +27,49 @@ export async function getOrCreateDefaultSender(): Promise<{ transporter: Transpo
     where: { isDefault: true },
   });
 
-  if (!sender) {
+  const hasEnvSmtp = Boolean(process.env.SMTP_HOST);
+
+  if (hasEnvSmtp) {
+    const smtpHost = process.env.SMTP_HOST!;
+    const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
+    const smtpUser = process.env.SMTP_USER || '';
+    const smtpPass = process.env.SMTP_PASS || '';
+    const smtpEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'noreply@reachinbox.ai';
+    const smtpName = process.env.SMTP_FROM_NAME || 'ReachInbox Scheduler';
+    const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
+
+    if (!sender) {
+      sender = await prisma.senderAccount.create({
+        data: {
+          name: smtpName,
+          email: smtpEmail,
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpSecure,
+          user: smtpUser,
+          pass: smtpPass,
+          hourlyLimit: parseInt(process.env.DEFAULT_MAX_HOURLY_LIMIT || '200', 10),
+          delaySeconds: parseInt(process.env.DEFAULT_MIN_DELAY_SECONDS || '2', 10),
+          isDefault: true,
+        },
+      });
+      console.log(`✅ Configured default production SMTP sender: ${sender.email} (${smtpHost})`);
+    } else if (sender.host !== smtpHost || sender.user !== smtpUser) {
+      sender = await prisma.senderAccount.update({
+        where: { id: sender.id },
+        data: {
+          name: smtpName,
+          email: smtpEmail,
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpSecure,
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
+      console.log(`✅ Synchronized default SMTP sender with environment: ${sender.email} (${smtpHost})`);
+    }
+  } else if (!sender) {
     let testUser = 'demo.reachinbox@ethereal.email';
     let testPass = 'ethereal_demo_pass_123';
 
