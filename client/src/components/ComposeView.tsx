@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Menu,
+  X,
 } from 'lucide-react';
 import type { SenderAccount } from '../types';
 import { api } from '../services/api';
@@ -36,6 +37,7 @@ interface ComposeViewProps {
 }
 
 interface Attachment {
+  id: string;
   file?: File;
   name: string;
   previewUrl: string;
@@ -49,22 +51,33 @@ function extractEmails(text: string): string[] {
   return Array.from(new Set(matches));
 }
 
-export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onScheduledSuccess, onOpenMobileNav }) => {
+export const ComposeView: React.FC<ComposeViewProps> = ({
+  senders,
+  onClose,
+  onScheduledSuccess,
+  onOpenMobileNav,
+}) => {
   const [senderId, setSenderId] = useState('');
   const [recipients, setRecipients] = useState<string[]>([]);
   const [recipientInput, setRecipientInput] = useState('');
   const [showAllChips, setShowAllChips] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [history, setHistory] = useState<string[]>(['']);
+  const [historyIndex, setHistoryIndex] = useState(0);
+
   const [delayBetweenEmails, setDelayBetweenEmails] = useState('');
   const [hourlyLimit, setHourlyLimit] = useState('');
-  // Default to 1 sample attachment matching Figma screenshots
+
+  // Default sample attachment matching Figma designs
   const [attachments, setAttachments] = useState<Attachment[]>([
     {
+      id: 'default-tennis-1',
       name: 'Tennis_Coach_Profile.png',
       previewUrl: 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=300&h=200&fit=crop',
     },
   ]);
+
   const [showSendLater, setShowSendLater] = useState(false);
   const [scheduledIso, setScheduledIso] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,9 +91,72 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
 
   const csvInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const defaultFromEmail =
     senders.find((s) => s.id === senderId)?.email || senders[0]?.email || 'oliver.brown@domain.io';
+
+  // Body state update with undo history tracking
+  const updateBody = (newBody: string) => {
+    setBody(newBody);
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(newBody);
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      const newIdx = historyIndex - 1;
+      setHistoryIndex(newIdx);
+      setBody(history[newIdx]);
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      const newIdx = historyIndex + 1;
+      setHistoryIndex(newIdx);
+      setBody(history[newIdx]);
+    }
+  };
+
+  // Text formatting utilities for rich text toolbar
+  const applyWrapFormat = (prefix: string, suffix: string = prefix, defaultPlaceholder = 'text') => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = body.slice(start, end) || defaultPlaceholder;
+    const replacement = `${prefix}${selected}${suffix}`;
+    const newBody = body.slice(0, start) + replacement + body.slice(end);
+    updateBody(newBody);
+
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    }, 0);
+  };
+
+  const applyLinePrefixFormat = (prefix: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const before = body.slice(0, start);
+    const selected = body.slice(start, end);
+    const after = body.slice(end);
+
+    const lines = (selected || 'List item').split('\n');
+    const formatted = lines.map((l) => (l.startsWith(prefix) ? l : `${prefix}${l}`)).join('\n');
+    const newBody = before + formatted + after;
+    updateBody(newBody);
+
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start, start + formatted.length);
+    }, 0);
+  };
 
   const addRecipients = (raw: string) => {
     const emails = extractEmails(raw);
@@ -90,7 +166,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
   };
 
   const handleRecipientKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
       e.preventDefault();
       addRecipients(recipientInput);
     } else if (e.key === 'Backspace' && recipientInput === '' && recipients.length > 0) {
@@ -156,13 +232,20 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
     if (!files || files.length === 0) return;
 
     const newAttachments: Attachment[] = Array.from(files).map((file) => ({
+      id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       file,
       name: file.name,
-      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+      previewUrl: file.type.startsWith('image/')
+        ? URL.createObjectURL(file)
+        : 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=300&h=200&fit=crop',
     }));
 
     setAttachments((prev) => [...prev, ...newAttachments]);
     if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+  };
+
+  const removeAttachment = (idToRemove: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== idToRemove));
   };
 
   const validate = (): string | null => {
@@ -185,7 +268,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
         recipients,
         subject,
         body,
-        startTime: isoOverride ?? scheduledIso ?? undefined,
+        startTime: isoOverride !== undefined ? (isoOverride || undefined) : (scheduledIso || undefined),
         delayBetweenEmails: delayBetweenEmails === '' ? undefined : Number(delayBetweenEmails),
         hourlyLimit: hourlyLimit === '' ? undefined : Number(hourlyLimit),
         senderId: senderId || undefined,
@@ -210,7 +293,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-white min-w-0">
       {/* Top Header Bar matching Figma */}
-      <div className="flex items-center justify-between gap-3 px-6 py-4">
+      <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-[#f0f0f0]">
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
@@ -232,12 +315,12 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
 
         {/* Right Utility Actions */}
         <div className="flex items-center gap-4 shrink-0">
-          {/* Paperclip with subscript count 1 in green */}
+          {/* Paperclip with subscript count matching Figma */}
           <button
             type="button"
             onClick={() => attachmentInputRef.current?.click()}
             title="Attach files"
-            className="relative flex items-center text-[#00a854] hover:text-[#00964b] transition-colors cursor-pointer"
+            className="relative flex items-center text-[#00a854] hover:text-[#00964b] transition-colors cursor-pointer p-1"
           >
             <Paperclip className="w-5 h-5" />
             {attachments.length > 0 && (
@@ -253,8 +336,10 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
             <button
               type="button"
               onClick={() => setShowSendLater((v) => !v)}
-              title="Schedule email"
-              className="text-[#00a854] hover:text-[#00964b] transition-colors cursor-pointer flex items-center"
+              title="Schedule email send time"
+              className={`p-1 transition-colors cursor-pointer flex items-center ${
+                scheduledIso ? 'text-[#00a854] ring-2 ring-[#00a854]/20 rounded-full' : 'text-[#00a854] hover:text-[#00964b]'
+              }`}
             >
               <Clock className="w-5 h-5" />
             </button>
@@ -263,18 +348,36 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
             )}
           </div>
 
-          {/* Send Later Pill Button */}
-          <button
-            type="button"
-            onClick={() => {
-              if (scheduledIso) submit();
-              else setShowSendLater(true);
-            }}
-            disabled={isSubmitting}
-            className="px-5 py-1.5 rounded-full border border-[#00a854] text-[#00a854] text-sm font-medium hover:bg-[#eaf5ed]/50 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {isSubmitting ? 'Sending...' : 'Send Later'}
-          </button>
+          {/* Send / Send Later Pill Button */}
+          {scheduledIso ? (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => submit()}
+                disabled={isSubmitting}
+                className="px-5 py-1.5 rounded-full border border-[#00a854] text-[#00a854] text-sm font-medium hover:bg-[#eaf5ed]/50 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isSubmitting ? 'Scheduling...' : 'Send Later'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduledIso(null)}
+                title="Cancel schedule and send immediately"
+                className="p-1 text-gray-400 hover:text-red-500 rounded-full cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => submit()}
+              disabled={isSubmitting}
+              className="px-6 py-1.5 rounded-full border border-[#00a854] text-[#00a854] text-sm font-medium hover:bg-[#eaf5ed]/50 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {isSubmitting ? 'Sending...' : 'Send'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -419,81 +522,197 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
         </div>
 
         {/* Rich Text Editor Container matching Figma */}
-        <div className="mt-2 bg-[#f8f9fa] rounded-2xl min-h-[380px] p-6 flex flex-col justify-start">
+        <div
+          onClick={() => textareaRef.current?.focus()}
+          className="mt-2 bg-[#f8f9fa] rounded-2xl min-h-[380px] p-6 flex flex-col justify-start cursor-text"
+        >
           {/* Top placeholder */}
-          <div className="text-sm text-gray-400 mb-3 select-none">
+          <div
+            className={`text-sm text-gray-400 mb-3 select-none transition-opacity ${
+              body.trim() ? 'opacity-30' : 'opacity-100'
+            }`}
+          >
             Type Your Reply...
           </div>
 
           {/* Floating White Pill Toolbar matching Figma */}
-          <div className="bg-white rounded-full px-5 py-2.5 shadow-sm border border-gray-100 flex items-center gap-4 text-gray-500 w-fit mb-4">
-            <button type="button" title="Undo" className="hover:text-black cursor-pointer">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-full px-5 py-2.5 shadow-sm border border-gray-100 flex items-center gap-4 text-gray-500 w-fit mb-4 cursor-default select-none flex-wrap"
+          >
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={historyIndex <= 0}
+              title="Undo (Ctrl+Z)"
+              className="hover:text-black cursor-pointer disabled:opacity-30"
+            >
               <Undo2 className="w-4 h-4" />
             </button>
-            <button type="button" title="Redo" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={historyIndex >= history.length - 1}
+              title="Redo (Ctrl+Y)"
+              className="hover:text-black cursor-pointer disabled:opacity-30"
+            >
               <Redo2 className="w-4 h-4" />
             </button>
-            <button type="button" title="Typography" className="hover:text-black cursor-pointer flex items-center">
+            <button
+              type="button"
+              onClick={() => applyLinePrefixFormat('### ')}
+              title="Typography / Heading"
+              className="hover:text-black cursor-pointer flex items-center"
+            >
               <Type className="w-4 h-4" />
               <ChevronsUpDown className="w-3 h-3 ml-0.5 text-gray-400" />
             </button>
-            <button type="button" title="Bold" className="hover:text-black cursor-pointer font-bold">
+            <button
+              type="button"
+              onClick={() => applyWrapFormat('**', '**', 'bold text')}
+              title="Bold"
+              className="hover:text-black cursor-pointer font-bold"
+            >
               <Bold className="w-4 h-4" />
             </button>
-            <button type="button" title="Italic" className="hover:text-black cursor-pointer italic">
+            <button
+              type="button"
+              onClick={() => applyWrapFormat('*', '*', 'italic text')}
+              title="Italic"
+              className="hover:text-black cursor-pointer italic"
+            >
               <Italic className="w-4 h-4" />
             </button>
-            <button type="button" title="Underline" className="hover:text-black cursor-pointer underline">
+            <button
+              type="button"
+              onClick={() => applyWrapFormat('<u>', '</u>', 'underlined text')}
+              title="Underline"
+              className="hover:text-black cursor-pointer underline"
+            >
               <Underline className="w-4 h-4" />
             </button>
-            <button type="button" title="Align" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => applyLinePrefixFormat('  ')}
+              title="Indent"
+              className="hover:text-black cursor-pointer"
+            >
               <AlignLeft className="w-4 h-4" />
             </button>
-            <button type="button" title="Line height" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => applyWrapFormat('\n\n', '\n\n')}
+              title="Paragraph spacing"
+              className="hover:text-black cursor-pointer"
+            >
               <ChevronsUpDown className="w-4 h-4" />
             </button>
-            <button type="button" title="Numbered list" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => applyLinePrefixFormat('1. ')}
+              title="Numbered list"
+              className="hover:text-black cursor-pointer"
+            >
               <ListOrdered className="w-4 h-4" />
             </button>
-            <button type="button" title="Bullet list" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => applyLinePrefixFormat('- ')}
+              title="Bullet list"
+              className="hover:text-black cursor-pointer"
+            >
               <List className="w-4 h-4" />
             </button>
-            <button type="button" title="Outdent" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => {
+                const el = textareaRef.current;
+                if (!el) return;
+                const start = el.selectionStart;
+                const before = body.slice(0, start);
+                const match = before.match(/ {2}$/);
+                if (match) {
+                  const newBody = before.slice(0, -2) + body.slice(start);
+                  updateBody(newBody);
+                }
+              }}
+              title="Outdent"
+              className="hover:text-black cursor-pointer"
+            >
               <Outdent className="w-4 h-4" />
             </button>
-            <button type="button" title="Indent" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => applyLinePrefixFormat('  ')}
+              title="Indent"
+              className="hover:text-black cursor-pointer"
+            >
               <Indent className="w-4 h-4" />
             </button>
-            <button type="button" title="Quote" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => applyLinePrefixFormat('> ')}
+              title="Quote"
+              className="hover:text-black cursor-pointer"
+            >
               <Quote className="w-4 h-4" />
             </button>
-            <button type="button" title="Image" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => attachmentInputRef.current?.click()}
+              title="Insert Image"
+              className="hover:text-black cursor-pointer"
+            >
               <ImageIcon className="w-4 h-4" />
             </button>
-            <button type="button" title="Strikethrough" className="hover:text-black cursor-pointer">
+            <button
+              type="button"
+              onClick={() => applyWrapFormat('~~', '~~', 'strikethrough')}
+              title="Strikethrough"
+              className="hover:text-black cursor-pointer"
+            >
               <Strikethrough className="w-4 h-4" />
             </button>
           </div>
 
           {/* Actual textarea for typing */}
           <textarea
+            ref={textareaRef}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => updateBody(e.target.value)}
             rows={8}
-            className="w-full bg-transparent text-sm text-gray-800 placeholder-transparent focus:outline-none resize-none flex-1"
+            className="w-full bg-transparent text-sm text-gray-800 placeholder-transparent focus:outline-none resize-none flex-1 leading-relaxed"
           />
         </div>
 
-        {/* Attachment Thumbnail Card below the Gray Box */}
+        {/* Attachment Thumbnail Cards below the Gray Box */}
         {attachments.length > 0 && (
-          <div className="mt-5">
-            <div className="w-44 h-28 rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
-              <img
-                src={attachments[0].previewUrl}
-                alt="Attachment preview"
-                className="w-full h-full object-cover"
-              />
-            </div>
+          <div className="mt-5 flex flex-wrap gap-4">
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className="group relative w-44 h-28 rounded-2xl overflow-hidden border border-gray-100 shadow-sm bg-white"
+              >
+                <img
+                  src={att.previewUrl}
+                  alt={att.name}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2">
+                  <span className="text-[11px] text-white font-medium truncate max-w-[130px] block">
+                    {att.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(att.id)}
+                    title="Remove attachment"
+                    className="absolute top-2 right-2 p-1 bg-white/80 hover:bg-white text-gray-700 rounded-full cursor-pointer transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

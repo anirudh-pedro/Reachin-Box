@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Clock, Send, LogOut, MessageSquare, X } from 'lucide-react';
 import type { User, SlackStatus } from '../types';
 
@@ -30,11 +30,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const displayName = user.name || 'Oliver Brown';
   const displayEmail = user.email || 'oliver.brown@domain.io';
   const avatarUrl =
     user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces';
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [menuOpen]);
 
   return (
     <>
@@ -68,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* User Profile Card */}
-        <div className="relative mb-5">
+        <div ref={menuRef} className="relative mb-5">
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}

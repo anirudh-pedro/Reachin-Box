@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowLeft, Star, Archive, Trash2, ChevronDown, ExternalLink, Menu } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowLeft, Star, Archive, Trash2, ChevronDown, ExternalLink, Menu, Check } from 'lucide-react';
 import type { EmailJob } from '../types';
 
 interface EmailDetailViewProps {
@@ -20,10 +20,23 @@ function formatDetailDate(value?: string | null): string {
 }
 
 export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack, onOpenMobileNav }) => {
+  const [isStarred, setIsStarred] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+
   const senderEmail = email.sender?.email || 'sender@example.com';
-  const senderName = email.sender?.name || 'Amanda Clark';
+  const senderName = email.sender?.name || (senderEmail.includes('@') ? senderEmail.split('@')[0] : 'Amanda Clark');
   const initial = (senderName.charAt(0) || 'A').toUpperCase();
   const shortRef = email.id ? email.id.slice(0, 8).toUpperCase() : 'MJWYT44 BM#52W01';
+
+  const showNotification = (msg: string) => {
+    setActionNotice(msg);
+    setTimeout(() => setActionNotice(null), 2500);
+  };
+
+  const isFigmaSample =
+    !email.body ||
+    email.subject?.toLowerCase().includes('hello there') ||
+    email.body.toLowerCase().includes('extremely exclusive');
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-white min-w-0">
@@ -53,13 +66,35 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack,
 
         {/* Right action icons */}
         <div className="flex items-center gap-4 text-gray-400 shrink-0">
-          <button type="button" title="Star" className="hover:text-amber-500 transition-colors cursor-pointer">
-            <Star className="w-4 h-4" />
+          <button
+            type="button"
+            onClick={() => setIsStarred((v) => !v)}
+            title={isStarred ? 'Unstar' : 'Star'}
+            className="hover:text-amber-500 transition-colors cursor-pointer"
+          >
+            <Star
+              className={`w-4 h-4 ${
+                isStarred ? 'text-amber-400 fill-amber-400' : 'text-gray-400 hover:text-amber-500'
+              }`}
+            />
           </button>
-          <button type="button" title="Archive" className="hover:text-gray-700 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={() => showNotification('Email archived')}
+            title="Archive"
+            className="hover:text-gray-700 transition-colors cursor-pointer"
+          >
             <Archive className="w-4 h-4" />
           </button>
-          <button type="button" title="Delete" className="hover:text-red-500 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={() => {
+              showNotification('Email removed');
+              setTimeout(onBack, 600);
+            }}
+            title="Delete"
+            className="hover:text-red-500 transition-colors cursor-pointer"
+          >
             <Trash2 className="w-4 h-4" />
           </button>
           <img
@@ -69,6 +104,13 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack,
           />
         </div>
       </div>
+
+      {actionNotice && (
+        <div className="mx-6 sm:mx-12 mt-3 p-2.5 bg-[#eaf5ed] border border-[#d2edd9] rounded-xl flex items-center gap-2 text-xs text-[#00a854] animate-fade-in">
+          <Check className="w-4 h-4 shrink-0" />
+          <span>{actionNotice}</span>
+        </div>
+      )}
 
       {/* Main Email Body Container */}
       <div className="flex-1 overflow-y-auto px-6 sm:px-12 py-6 max-w-4xl w-full">
@@ -88,7 +130,7 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack,
               </span>
             </div>
             <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
-              <span>to me</span>
+              <span>to {email.recipient || 'me'}</span>
               <ChevronDown className="w-3 h-3 text-gray-400" />
             </div>
           </div>
@@ -96,33 +138,41 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({ email, onBack,
 
         {/* Email Prose Content */}
         <div className="text-sm text-gray-800 leading-relaxed space-y-4">
-          <p>Hey Oliver,</p>
-          <p>You&apos;ve just RECEIVED something</p>
+          {isFigmaSample ? (
+            <>
+              <p>Hey Oliver,</p>
+              <p>You&apos;ve just RECEIVED something</p>
 
-          {/* Figma Golden Callout Box */}
-          <div className="my-5 p-4 bg-[#fffde7] border-l-4 border-[#eab308] rounded-r-xl space-y-2 text-xs sm:text-sm text-gray-900 font-medium">
-            <p className="flex items-center gap-1.5">
-              <span>⚡</span>
-              <span className="font-bold">Extremely Exclusive—Only 4 Spots Worldwide Per Year | $25,000 investment</span>
-              <span>⚡</span>
-            </p>
-            <p className="flex items-center gap-1.5 text-gray-700 font-normal">
-              <span>⚡</span>
-              <span>To explore securing your private transformation, simply reply right now with <strong>&quot;FLY OUT FIX&quot;</strong>.</span>
-            </p>
-          </div>
+              {/* Figma Golden Callout Box */}
+              <div className="my-5 p-4 bg-[#fffde7] border-l-4 border-[#eab308] rounded-r-xl space-y-2 text-xs sm:text-sm text-gray-900 font-medium">
+                <p className="flex items-center gap-1.5">
+                  <span>⚡</span>
+                  <span className="font-bold">Extremely Exclusive—Only 4 Spots Worldwide Per Year | $25,000 investment</span>
+                  <span>⚡</span>
+                </p>
+                <p className="flex items-center gap-1.5 text-gray-700 font-normal">
+                  <span>⚡</span>
+                  <span>To explore securing your private transformation, simply reply right now with <strong>&quot;FLY OUT FIX&quot;</strong>.</span>
+                </p>
+              </div>
 
-          {email.body && email.body !== 'Meeting follow-up' && (
-            <div className="py-2 text-gray-700 whitespace-pre-wrap">
+              {email.body && email.body !== 'Meeting follow-up' && (
+                <div className="py-2 text-gray-700 whitespace-pre-wrap">
+                  {email.body}
+                </div>
+              )}
+
+              <p className="pt-2">Your coach for world-class performance,</p>
+              <p className="font-medium text-gray-900">Grant</p>
+              <p className="text-xs text-gray-500 italic">
+                P.S. Always remember that you can develop world class technique! 🚀
+              </p>
+            </>
+          ) : (
+            <div className="py-2 text-gray-800 whitespace-pre-wrap leading-relaxed">
               {email.body}
             </div>
           )}
-
-          <p className="pt-2">Your coach for world-class performance,</p>
-          <p className="font-medium text-gray-900">Grant</p>
-          <p className="text-xs text-gray-500 italic">
-            P.S. Always remember that you can develop world class technique! 🚀
-          </p>
         </div>
 
         {/* Figma Attachment Cards */}

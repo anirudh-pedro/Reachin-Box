@@ -1,5 +1,5 @@
-import React from 'react';
-import { Search, Filter, RefreshCw, Star, Loader2, Inbox, Clock, AlertTriangle, Menu } from 'lucide-react';
+import React, { useState } from 'react';
+import { Search, Filter, RefreshCw, Star, Loader2, Inbox, Clock, AlertTriangle, Menu, ArrowUpDown, Check } from 'lucide-react';
 import type { EmailJob } from '../types';
 
 interface Pagination {
@@ -50,6 +50,25 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
   onSelectEmail,
   onOpenMobileNav,
 }) => {
+  const [starredIds, setStarredIds] = useState<Record<string, boolean>>({});
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [filterStarredOnly, setFilterStarredOnly] = useState(false);
+  const [sortByNewest, setSortByNewest] = useState(true);
+
+  const toggleStar = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setStarredIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Local filtering & sorting if applied
+  let displayedEmails = [...emails];
+  if (filterStarredOnly) {
+    displayedEmails = displayedEmails.filter((e) => starredIds[e.id]);
+  }
+  if (!sortByNewest) {
+    displayedEmails.reverse();
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-white min-w-0">
       {/* Top Toolbar matching Figma */}
@@ -73,17 +92,67 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
             placeholder="Search"
             className="w-full bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => onSearchChange('')}
+              className="text-xs text-gray-400 hover:text-black cursor-pointer p-0.5"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Right utility buttons */}
-        <div className="flex items-center gap-2 text-gray-400 shrink-0">
-          <button
-            type="button"
-            title="Filter"
-            className="p-2 rounded-full hover:text-gray-700 hover:bg-[#f4f5f7] transition-colors cursor-pointer"
-          >
-            <Filter className="w-4 h-4" />
-          </button>
+        <div className="relative flex items-center gap-2 text-gray-400 shrink-0">
+          <div className="relative">
+            <button
+              type="button"
+              title="Filter"
+              onClick={() => setShowFilterMenu((v) => !v)}
+              className={`p-2 rounded-full transition-colors cursor-pointer ${
+                filterStarredOnly || showFilterMenu
+                  ? 'text-[#00a854] bg-[#eaf5ed]'
+                  : 'hover:text-gray-700 hover:bg-[#f4f5f7]'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+            </button>
+
+            {/* Filter Dropdown */}
+            {showFilterMenu && (
+              <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-[#edf0f2] rounded-xl shadow-lg z-30 py-2 animate-fade-in text-xs text-gray-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStarredOnly((v) => !v);
+                    setShowFilterMenu(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-[#f4f5f7] cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Star className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Starred only</span>
+                  </span>
+                  {filterStarredOnly && <Check className="w-3.5 h-3.5 text-[#00a854]" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSortByNewest((v) => !v);
+                    setShowFilterMenu(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-[#f4f5f7] cursor-pointer border-t border-gray-50"
+                >
+                  <span className="flex items-center gap-2">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
+                    <span>{sortByNewest ? 'Newest first' : 'Oldest first'}</span>
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             title="Refresh"
@@ -102,11 +171,15 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
             <Loader2 className="w-6 h-6 animate-spin text-[#00a854]" />
             <span className="text-xs">Loading {mode} emails...</span>
           </div>
-        ) : emails.length === 0 ? (
+        ) : displayedEmails.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-gray-400 gap-2 px-4 text-center">
             <Inbox className="w-9 h-9 text-gray-300 mb-1" />
             <p className="text-sm font-medium text-gray-700">
-              {mode === 'scheduled' ? 'No scheduled emails found' : 'No sent emails yet'}
+              {filterStarredOnly
+                ? 'No starred emails found'
+                : mode === 'scheduled'
+                ? 'No scheduled emails found'
+                : 'No sent emails yet'}
             </p>
             <p className="text-xs text-gray-400">
               {mode === 'scheduled'
@@ -115,12 +188,13 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
             </p>
           </div>
         ) : (
-          emails.map((job) => {
+          displayedEmails.map((job) => {
             const recipientName = job.recipient.includes('@')
               ? job.recipient.split('@')[0].replace(/[._]/g, ' ')
               : job.recipient;
             const capitalizedRecipient =
               recipientName.charAt(0).toUpperCase() + recipientName.slice(1);
+            const isStarred = Boolean(starredIds[job.id]);
 
             return (
               <div
@@ -158,8 +232,19 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
                   <span className="text-gray-400 font-normal ml-1">- {snippet(job.body)}</span>
                 </div>
 
-                {/* Star Icon */}
-                <Star className="w-4 h-4 text-gray-300 hover:text-amber-400 transition-colors shrink-0 ml-auto cursor-pointer" />
+                {/* Star Icon with working toggle */}
+                <button
+                  type="button"
+                  onClick={(e) => toggleStar(e, job.id)}
+                  title={isStarred ? 'Unstar email' : 'Star email'}
+                  className="p-1 -mr-1 rounded-full hover:bg-gray-100 transition-colors cursor-pointer ml-auto shrink-0"
+                >
+                  <Star
+                    className={`w-4 h-4 transition-colors ${
+                      isStarred ? 'text-amber-400 fill-amber-400' : 'text-gray-300 hover:text-amber-400'
+                    }`}
+                  />
+                </button>
               </div>
             );
           })

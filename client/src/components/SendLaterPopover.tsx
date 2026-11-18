@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Calendar } from 'lucide-react';
 
 interface SendLaterPopoverProps {
@@ -16,13 +16,18 @@ const PRESETS = [
 export const SendLaterPopover: React.FC<SendLaterPopoverProps> = ({ onCancel, onDone }) => {
   const [customDate, setCustomDate] = useState('');
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handlePresetClick = (preset: { label: string; hour: number }) => {
     setSelectedPreset(preset.label);
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(preset.hour, 0, 0, 0);
-    setCustomDate(tomorrow.toISOString().slice(0, 16));
+    // Format to YYYY-MM-DDTHH:mm for datetime-local input
+    const localIso = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setCustomDate(localIso);
   };
 
   const handleDone = () => {
@@ -37,21 +42,42 @@ export const SendLaterPopover: React.FC<SendLaterPopoverProps> = ({ onCancel, on
     }
   };
 
+  const handleContainerClick = () => {
+    if (inputRef.current) {
+      try {
+        if ('showPicker' in HTMLInputElement.prototype) {
+          inputRef.current.showPicker();
+        } else {
+          inputRef.current.focus();
+        }
+      } catch {
+        inputRef.current.focus();
+      }
+    }
+  };
+
   return (
-    <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-[#edf0f2] rounded-2xl shadow-xl z-50 p-5 animate-fade-in">
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="absolute right-0 top-full mt-2 w-80 bg-white border border-[#edf0f2] rounded-2xl shadow-xl z-50 p-5 animate-fade-in"
+    >
       {/* Title */}
       <h3 className="text-sm font-bold text-gray-900 mb-3.5">Send Later</h3>
 
       {/* Date/Time Input */}
-      <div className="relative mb-3.5">
+      <div
+        className="relative mb-3.5 cursor-pointer"
+        onClick={handleContainerClick}
+      >
         <input
+          ref={inputRef}
           type="datetime-local"
           value={customDate}
           onChange={(e) => {
             setCustomDate(e.target.value);
             setSelectedPreset(null);
           }}
-          className="w-full bg-[#f4f5f7] text-xs text-gray-700 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a854]"
+          className="w-full bg-[#f4f5f7] text-xs text-gray-700 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-1 focus:ring-[#00a854] cursor-pointer"
         />
         {!customDate && (
           <div className="absolute inset-0 bg-[#f4f5f7] rounded-xl px-3.5 py-2.5 flex items-center justify-between pointer-events-none text-xs text-gray-400">
