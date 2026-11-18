@@ -32,10 +32,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const displayName = user.name || 'Oliver Brown';
-  const displayEmail = user.email || 'oliver.brown@domain.io';
-  const avatarUrl =
-    user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces';
+  const displayName = user.name || (user.email ? user.email.split('@')[0] : 'User');
+  const displayEmail = user.email || '';
+  const initial = (displayName.charAt(0) || 'U').toUpperCase();
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -90,11 +89,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="w-full bg-[#f4f5f7] hover:bg-[#eceef2] rounded-2xl p-2.5 flex items-center justify-between transition-colors cursor-pointer text-left"
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <img
-                src={avatarUrl}
-                alt={displayName}
-                className="w-8 h-8 rounded-full object-cover shrink-0"
-              />
+              {user.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={displayName}
+                  className="w-8 h-8 rounded-full object-cover shrink-0"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-[#00a854] text-white flex items-center justify-center text-xs font-semibold shrink-0">
+                  {initial}
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-gray-900 truncate">{displayName}</div>
                 <div className="text-[10px] text-gray-400 truncate">{displayEmail}</div>

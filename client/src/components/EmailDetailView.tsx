@@ -13,8 +13,10 @@ interface EmailDetailViewProps {
 }
 
 function formatDetailDate(value?: string | null): string {
-  if (!value) return 'Nov 3, 10:23 AM';
-  return new Date(value).toLocaleString('en-US', {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
@@ -35,10 +37,11 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const senderEmail = email.sender?.email || 'sender@example.com';
-  const senderName = email.sender?.name || (senderEmail.includes('@') ? senderEmail.split('@')[0] : 'Amanda Clark');
-  const initial = (senderName.charAt(0) || 'A').toUpperCase();
-  const shortRef = email.id ? email.id.slice(0, 8).toUpperCase() : 'MJWYT44 BM#52W01';
+  const senderEmail = email.sender?.email || 'reachinbox@domain.io';
+  const senderName =
+    email.sender?.name || (senderEmail.includes('@') ? senderEmail.split('@')[0] : 'Sender');
+  const initial = (senderName.charAt(0) || 'S').toUpperCase();
+  const shortRef = email.id ? email.id.slice(0, 8).toUpperCase() : '';
 
   const showNotification = (msg: string) => {
     setActionNotice(msg);
@@ -79,14 +82,9 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
     }
   };
 
-  const isFigmaSample =
-    !email.body ||
-    email.subject?.toLowerCase().includes('hello there') ||
-    email.body.toLowerCase().includes('extremely exclusive');
-
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-white min-w-0">
-      {/* Top Header Bar matching Figma */}
+      {/* Top Header Bar */}
       <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-[#f0f0f0]">
         <div className="flex items-center gap-3 min-w-0">
           <button
@@ -105,8 +103,8 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
             <ArrowLeft className="w-5 h-5" />
           </button>
           <h2 className="text-sm font-semibold text-gray-900 truncate">
-            {email.subject || 'Oliver, hello there!'}
-            <span className="font-normal text-gray-400 ml-1.5">| {shortRef}</span>
+            {email.subject || '(No Subject)'}
+            {shortRef && <span className="font-normal text-gray-400 ml-1.5">| {shortRef}</span>}
           </h2>
         </div>
 
@@ -147,11 +145,9 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
             <Trash2 className="w-4 h-4" />
           </button>
 
-          <img
-            src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces"
-            alt="Profile"
-            className="w-7 h-7 rounded-full object-cover ml-1 shrink-0 border border-gray-100"
-          />
+          <div className="w-7 h-7 rounded-full bg-[#00a854] text-white flex items-center justify-center text-xs font-semibold shrink-0">
+            {initial}
+          </div>
         </div>
       </div>
 
@@ -176,93 +172,24 @@ export const EmailDetailView: React.FC<EmailDetailViewProps> = ({
                 <span className="text-gray-400 ml-1">&lt;{senderEmail}&gt;</span>
               </div>
               <span className="text-xs text-gray-400 whitespace-nowrap">
-                {formatDetailDate(email.sentAt || email.scheduledAt)}
+                {formatDetailDate(email.sentAt || email.scheduledAt || email.createdAt)}
               </span>
             </div>
             <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
-              <span>to {email.recipient || 'me'}</span>
+              <span>to {email.recipient}</span>
               <ChevronDown className="w-3 h-3 text-gray-400" />
             </div>
           </div>
         </div>
 
-        {/* Email Prose Content */}
-        <div className="text-sm text-gray-800 leading-relaxed space-y-4">
-          {isFigmaSample ? (
-            <>
-              <p>Hey Oliver,</p>
-              <p>You&apos;ve just RECEIVED something</p>
-
-              {/* Figma Golden Callout Box */}
-              <div className="my-5 p-4 bg-[#fffde7] border-l-4 border-[#eab308] rounded-r-xl space-y-2 text-xs sm:text-sm text-gray-900 font-medium">
-                <p className="flex items-center gap-1.5">
-                  <span>⚡</span>
-                  <span className="font-bold">Extremely Exclusive—Only 4 Spots Worldwide Per Year | $25,000 investment</span>
-                  <span>⚡</span>
-                </p>
-                <p className="flex items-center gap-1.5 text-gray-700 font-normal">
-                  <span>⚡</span>
-                  <span>To explore securing your private transformation, simply reply right now with <strong>&quot;FLY OUT FIX&quot;</strong>.</span>
-                </p>
-              </div>
-
-              {email.body && email.body !== 'Meeting follow-up' && (
-                <div className="py-2 text-gray-700 whitespace-pre-wrap">
-                  {email.body}
-                </div>
-              )}
-
-              <p className="pt-2">Your coach for world-class performance,</p>
-              <p className="font-medium text-gray-900">Grant</p>
-              <p className="text-xs text-gray-500 italic">
-                P.S. Always remember that you can develop world class technique! 🚀
-              </p>
-            </>
-          ) : (
-            <div className="py-2 text-gray-800 whitespace-pre-wrap leading-relaxed">
-              {email.body}
-            </div>
-          )}
-        </div>
-
-        {/* Figma Attachment Cards */}
-        <div className="mt-8 pt-6 border-t border-[#f0f0f0]">
-          <div className="flex flex-wrap gap-4">
-            {/* Attachment 1 */}
-            <div className="w-48 bg-white border border-[#e5e7eb] rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-              <div className="h-28 bg-[#2563eb] relative overflow-hidden flex items-center justify-center">
-                <img
-                  src="https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=300&h=200&fit=crop"
-                  alt="Tennis Coach Profile"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="p-3 bg-white">
-                <p className="text-xs font-semibold text-gray-800 truncate">Tennis_Coach_Profile.png</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">1.2 MB</p>
-              </div>
-            </div>
-
-            {/* Attachment 2 */}
-            <div className="w-48 bg-white border border-[#e5e7eb] rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-              <div className="h-28 bg-[#2563eb] relative overflow-hidden flex items-center justify-center">
-                <img
-                  src="https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=300&h=200&fit=crop"
-                  alt="Tennis Coach Profile 2"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="p-3 bg-white">
-                <p className="text-xs font-semibold text-gray-800 truncate">Tennis_Coach_Profile2.png</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">1.2 MB</p>
-              </div>
-            </div>
-          </div>
+        {/* Real Email Body Content */}
+        <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap py-2">
+          {email.body || '(Empty email body)'}
         </div>
 
         {/* Ethereal preview link if present */}
         {email.etherealPreviewUrl && (
-          <div className="mt-6">
+          <div className="mt-6 pt-4 border-t border-[#f0f0f0]">
             <a
               href={email.etherealPreviewUrl}
               target="_blank"

@@ -69,14 +69,8 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
   const [delayBetweenEmails, setDelayBetweenEmails] = useState('');
   const [hourlyLimit, setHourlyLimit] = useState('');
 
-  // Default sample attachment matching Figma designs
-  const [attachments, setAttachments] = useState<Attachment[]>([
-    {
-      id: 'default-tennis-1',
-      name: 'Tennis_Coach_Profile.png',
-      previewUrl: 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=300&h=200&fit=crop',
-    },
-  ]);
+  // Attachments uploaded by the user
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   const [showSendLater, setShowSendLater] = useState(false);
   const [scheduledIso, setScheduledIso] = useState<string | null>(null);
@@ -94,7 +88,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const defaultFromEmail =
-    senders.find((s) => s.id === senderId)?.email || senders[0]?.email || 'oliver.brown@domain.io';
+    senders.find((s) => s.id === senderId)?.email || senders[0]?.email || 'Select sender';
 
   // Body state update with undo history tracking
   const updateBody = (newBody: string) => {
@@ -235,9 +229,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
       id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       file,
       name: file.name,
-      previewUrl: file.type.startsWith('image/')
-        ? URL.createObjectURL(file)
-        : 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=300&h=200&fit=crop',
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
     }));
 
     setAttachments((prev) => [...prev, ...newAttachments]);
@@ -692,13 +684,22 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
             {attachments.map((att) => (
               <div
                 key={att.id}
-                className="group relative w-44 h-28 rounded-2xl overflow-hidden border border-gray-100 shadow-sm bg-white"
+                className="group relative w-44 h-28 rounded-2xl overflow-hidden border border-gray-100 shadow-sm bg-[#f8f9fa] flex items-center justify-center p-3"
               >
-                <img
-                  src={att.previewUrl}
-                  alt={att.name}
-                  className="w-full h-full object-cover"
-                />
+                {att.previewUrl ? (
+                  <img
+                    src={att.previewUrl}
+                    alt={att.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-gray-500 gap-1.5 p-2 text-center">
+                    <Paperclip className="w-6 h-6 text-[#00a854]" />
+                    <span className="text-[11px] font-medium text-gray-800 truncate max-w-[130px]">
+                      {att.name}
+                    </span>
+                  </div>
+                )}
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2">
                   <span className="text-[11px] text-white font-medium truncate max-w-[130px] block">
                     {att.name}

@@ -110,7 +110,7 @@ export async function emailLoginHandler(req: Request, res: Response): Promise<vo
         data: {
           email: cleanEmail,
           name: namePrefix.charAt(0).toUpperCase() + namePrefix.slice(1),
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces',
+          avatar: null,
         },
       });
     }
