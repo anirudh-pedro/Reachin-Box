@@ -24,35 +24,141 @@ moment a limit trips.
 
 ## Architecture Overview
 
-```
-Compose UI / API caller
-        │
-        ▼
-POST /api/emails/schedule  ──────────►  PostgreSQL (EmailJob row, status=SCHEDULED)
-        │
-        ▼
-BullMQ delayed job added to Redis (jobId = EmailJob.id, deterministic)
-        │
-        ▼  (delay elapses — no polling, Redis wakes the worker)
-BullMQ Worker picks up the job
-        │
-        ├─► Idempotency check: fetch EmailJob by id, skip if already SENT
-        │
-        ├─► Redis-backed hourly rate limit check (atomic Lua script, per sender)
-        │        │
-        │        ├─ allowed  ─► continue
-        │        └─ blocked  ─► status=RATE_LIMITED, reschedule into next hour window,
-        │                       emit RATE_LIMIT_TRIPPED event (Slack listener picks it up)
-        │
-        ├─► Redis-backed per-sender minimum delay throttle
-        │
-        ├─► Send via Ethereal SMTP (nodemailer)
-        │
-        └─► status=SENT + sentAt + Ethereal preview URL, or status=FAILED after
-             retries exhaust (BullMQ: 3 attempts, exponential backoff)
+ReachInbox uses a decoupled, event-driven architecture designed for high-concurrency email scheduling, strict multi-worker safety, atomic rate limiting, and zero polling.
 
-Elasticsearch (optional) is indexed on every status transition; if unreachable,
-search transparently falls back to PostgreSQL ILIKE queries.
+### 1. System & Component Architecture
+
+```mermaid
+flowchart TD
+    subgraph ClientLayer["Frontend Client (Vercel)"]
+        UI["React 19 + Vite SPA"]
+        Compose["Email Composer & Send-Later Modal"]
+        BulkUpload["CSV Bulk Email Upload"]
+        Dashboard["Queue & Delivery Dashboard"]
+    end
+
+    subgraph APILayer["Backend API (Render Web Service)"]
+        API["Express.js REST API (Node.js + TypeScript)"]
+        AuthMiddleware["JWT & OAuth Middleware"]
+        EmailController["Email Controller & Validation (Zod)"]
+        BullBoard["Bull-Board Queue Monitoring UI"]
+    end
+
+    subgraph StorageLayer["Data & Persistence Tier"]
+        Postgres[("PostgreSQL\n(Prisma ORM)")]
+        RedisQueue[("Redis (Render Key-Value)\nBullMQ Delay Queue")]
+        ES[("Elasticsearch\n(Optional Full-Text Search)")]
+    end
+
+    subgraph WorkerLayer["Background Processing (Render Worker)"]
+        Worker["BullMQ Worker (Persistent Process)"]
+        DistLock["Distributed Mutex Lock\n(Redlock / Key Lock)"]
+        RateLimiter["Atomic Rate Limiter\n(Redis Lua Script)"]
+        DelayThrottler["Per-Sender Inter-Send\nDelay Throttler"]
+    end
+
+    subgraph ExternalServices["External Services & Integrations"]
+        SMTP["SMTP Server (Production / Ethereal)"]
+        Slack["Slack OAuth & Notification Webhooks"]
+        Google["Google Identity / OAuth API"]
+    end
+
+    UI -->|"HTTP / REST API"| API
+    Compose -->|"POST /api/emails/schedule"| API
+    BulkUpload -->|"POST /api/emails/upload-csv"| API
+    API -->|"Read / Write Records"| Postgres
+    API -->|"Enqueue Delayed Jobs"| RedisQueue
+    API -->|"Index Documents"| ES
+    BullBoard -.->|"Inspect Metrics"| RedisQueue
+
+    RedisQueue -->|"Reactive Wakeup (Zero Polling)"| Worker
+    Worker -->|"1. Acquire Mutex"| DistLock
+    Worker -->|"2. Check Hourly Quota"| RateLimiter
+    Worker -->|"3. Reserve Send Slot"| DelayThrottler
+    Worker -->|"4. Dispatch Email"| SMTP
+    Worker -->|"5. Update Status (SENT/RATE_LIMITED)"| Postgres
+    Worker -->|"6. Index Email Transition"| ES
+    Worker -.->|"Alert on Rate Limit Trips"| Slack
+```
+
+### 2. End-to-End Scheduling & Worker Execution Lifecycle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Frontend
+    participant API as Express API
+    participant DB as PostgreSQL
+    participant Redis as Redis (BullMQ)
+    participant Worker as BullMQ Background Worker
+    participant SMTP as SMTP Transport
+    participant ES as Elasticsearch
+
+    User->>API: POST /api/emails/schedule { recipient, subject, body, scheduledAt }
+    API->>DB: INSERT EmailJob (status = "SCHEDULED", scheduledAt)
+    API->>Redis: queue.add("send-email", { emailId }, { delay, jobId: emailId })
+    API-->>User: 201 Created { id, status: "SCHEDULED" }
+
+    Note over Redis,Worker: Redis delays job until scheduledAt (reactive wakeup, no DB polling)
+
+    Redis->>Worker: Job Ready (emailId)
+    Worker->>DB: SELECT EmailJob WHERE id = emailId
+    alt Email already SENT or DELETED
+        Worker-->>Redis: Ack job (idempotent skip)
+    else Email eligible for send
+        Worker->>Redis: Acquire distributed lock (emailId)
+        Worker->>Redis: EVAL rateLimiter.lua (check hourly sending limit)
+        alt Hourly quota exceeded
+            Worker->>DB: UPDATE EmailJob status = "RATE_LIMITED", reschedule into next hour
+            Worker->>Redis: queue.add("send-email", { emailId }, { delay: nextHourDelay })
+            Worker-->>User: Emit Slack alert (Rate limit tripped)
+        else Quota available
+            Worker->>Redis: Reserve per-sender minimum inter-send delay
+            Worker->>SMTP: sendMail({ to, subject, html })
+            SMTP-->>Worker: 250 Message Accepted (messageId, previewUrl)
+            Worker->>DB: UPDATE EmailJob status = "SENT", sentAt = NOW()
+            Worker->>ES: Index document (status = "SENT")
+            Worker->>Redis: Release distributed lock
+            Worker-->>Redis: Job Completed
+        end
+    end
+```
+
+### 3. Cloud Deployment Architecture
+
+```mermaid
+flowchart LR
+    subgraph Edge["Edge & CDN Tier (Vercel)"]
+        VercelCDN["Vercel Edge Network\n(React 19 SPA)"]
+        SPA["SPA Routing (vercel.json)"]
+    end
+
+    subgraph Compute["Application Compute Tier (Render)"]
+        RenderAPI["Render Web Service\n(reachinbox-api)\nDocker / Node.js 22"]
+        RenderWorker["Render Background Worker\n(reachinbox-worker)\nPersistent Worker Process"]
+    end
+
+    subgraph Data["Managed Data Tier"]
+        RenderPG[("Render Managed PostgreSQL\n(Tables, Indexes, Migrations)")]
+        RenderKV[("Render Key-Value Redis\n(maxmemory-policy: noeviction)")]
+        ElasticCloud[("Elastic Cloud / Managed ES\n(Full-Text Search Index)")]
+    end
+
+    subgraph ThirdParty["Cloud Services"]
+        MailServer["Production SMTP / SendGrid / Ethereal"]
+        SlackAPI["Slack Incoming Webhooks / OAuth"]
+    end
+
+    VercelCDN -->|"HTTPS (CORS configured)"| RenderAPI
+    RenderAPI -->|"Prisma Connection Pool"| RenderPG
+    RenderAPI -->|"BullMQ Producer"| RenderKV
+    RenderAPI -->|"Elastic Client"| ElasticCloud
+
+    RenderWorker -->|"BullMQ Consumer"| RenderKV
+    RenderWorker -->|"Prisma Client"| RenderPG
+    RenderWorker -->|"Search Sync"| ElasticCloud
+    RenderWorker -->|"TLS SMTP"| MailServer
+    RenderWorker -.->|"Notifications"| SlackAPI
 ```
 
 **Backend:** Express + TypeScript, Prisma (PostgreSQL), BullMQ + ioredis, Nodemailer (Ethereal),
@@ -366,9 +472,45 @@ case. No manual configuration is needed either way; it self-detects.
 
 ## Production Deployment
 
-Target architecture: React frontend on **Vercel**, Express API + BullMQ worker + PostgreSQL +
-Redis + Elasticsearch on a single **AWS EC2** instance via Docker Compose, behind an Nginx
-reverse proxy.
+ReachInbox provides full production deployment automation supporting **Render + Vercel** (recommended for managed PaaS) and **Docker Compose / VPS** (for self-hosted infrastructure).
+
+### Option A: Render + Vercel (Recommended Architecture)
+
+The repository includes a ready-to-use Render Blueprint file: [`render.yaml`](./render.yaml).
+
+| Component | Platform | Configuration & Service Type |
+|---|---|---|
+| **Frontend** | Vercel | React 19 SPA, rewrite rules in [`client/vercel.json`](./client/vercel.json) |
+| **Backend REST API** | Render | Web Service (`reachinbox-api`), Docker runtime, public URL |
+| **Queue Worker** | Render | Background Worker (`reachinbox-worker`), persistent process, no web listener |
+| **Database** | Render | Managed PostgreSQL (`reachinbox-postgres`) |
+| **Redis** | Render | Managed Redis Key-Value (`reachinbox-redis`, eviction policy: `noeviction`) |
+| **Search Engine** | Elastic Cloud | Managed Elasticsearch cluster via `ELASTICSEARCH_URL` |
+
+#### 1. Deploying the Backend on Render
+1. Connect your GitHub repository to [Render](https://render.com).
+2. Go to **Blueprints** $\rightarrow$ **New Blueprint Instance**.
+3. Select this repository. Render automatically reads [`render.yaml`](./render.yaml) and provisions:
+   - `reachinbox-postgres` (Database)
+   - `reachinbox-redis` (Key-Value Redis)
+   - `reachinbox-api` (Express Web Service)
+   - `reachinbox-worker` (Persistent BullMQ Background Worker)
+4. Set required secrets in Render dashboard for `reachinbox-api` and `reachinbox-worker`:
+   - `JWT_SECRET`: Random secure 32+ character string
+   - `CORS_ORIGIN`: Your production Vercel frontend URL (e.g. `https://reachinbox.vercel.app`)
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` (Optional, defaults to Ethereal)
+   - `ELASTICSEARCH_URL`, `ELASTICSEARCH_USERNAME`, `ELASTICSEARCH_PASSWORD` (Optional)
+
+#### 2. Deploying the Frontend on Vercel
+1. Import the repository into [Vercel](https://vercel.com).
+2. Set Root Directory to `client`.
+3. In Project Settings $\rightarrow$ Environment Variables, configure:
+   - `VITE_API_URL`: Your Render backend API URL (e.g. `https://reachinbox-api.onrender.com`)
+4. Click **Deploy**. Single-page routing rewrites are already handled by [`client/vercel.json`](./client/vercel.json).
+
+---
+
+### Option B: Docker Compose / Self-Hosted VPS (EC2)
 
 ```
                     ┌─────────────────────┐
