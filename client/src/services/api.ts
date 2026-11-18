@@ -57,6 +57,13 @@ axios.interceptors.response.use(
   }
 );
 
+export interface PaginationMetadata {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
 export const api = {
   // Authentication
   async googleLogin(idToken: string) {
@@ -118,7 +125,7 @@ export const api = {
   },
 
   async getScheduledEmails(params?: { page?: number; limit?: number; search?: string }) {
-    const res = await axios.get<{ success: boolean; data: EmailJob[]; pagination: any }>(
+    const res = await axios.get<{ success: boolean; data: EmailJob[]; pagination: PaginationMetadata }>(
       `${API_BASE}/emails/scheduled`,
       { params }
     );
@@ -126,7 +133,7 @@ export const api = {
   },
 
   async getSentEmails(params?: { page?: number; limit?: number; search?: string }) {
-    const res = await axios.get<{ success: boolean; data: EmailJob[]; pagination: any }>(
+    const res = await axios.get<{ success: boolean; data: EmailJob[]; pagination: PaginationMetadata }>(
       `${API_BASE}/emails/sent`,
       { params }
     );
@@ -134,7 +141,7 @@ export const api = {
   },
 
   async searchEmails(params: { q: string; status?: string; tab?: 'scheduled' | 'sent'; page?: number; limit?: number }) {
-    const res = await axios.get<{ success: boolean; source: string; data: EmailJob[]; pagination: any }>(
+    const res = await axios.get<{ success: boolean; source: string; data: EmailJob[]; pagination: PaginationMetadata }>(
       `${API_BASE}/emails/search`,
       { params }
     );

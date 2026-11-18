@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { User } from '../types';
 import { api } from '../services/api';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -46,28 +46,32 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
 
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
-  const handleGoogleCredentialResponse = async (response: { credential: string }) => {
-    if (!response.credential) {
-      setError('Google did not return a valid credential. Please try again.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const res = await api.googleLogin(response.credential);
-      if (res.user) {
-        onLogin(res.user);
+  const handleGoogleCredentialResponse = useCallback(
+    async (response: { credential: string }) => {
+      if (!response.credential) {
+        setError('Google did not return a valid credential. Please try again.');
+        return;
       }
-    } catch (err: any) {
-      console.error('Google login error:', err);
-      const serverMessage = err.response?.data?.message || err.message || 'Authentication failed';
-      setError(`Login failed: ${serverMessage}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const res = await api.googleLogin(response.credential);
+        if (res.user) {
+          onLogin(res.user);
+        }
+      } catch (err: unknown) {
+        console.error('Google login error:', err);
+        const errorObj = err as { response?: { data?: { message?: string } }; message?: string };
+        const serverMessage = errorObj.response?.data?.message || errorObj.message || 'Authentication failed';
+        setError(`Login failed: ${serverMessage}`);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [onLogin]
+  );
 
   useEffect(() => {
     if (!googleClientId) return;
@@ -81,8 +85,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               callback: handleGoogleCredentialResponse,
             });
             isGsiInitialized.current = true;
-          } catch (e: any) {
-            console.warn('Google Identity Services initialization warning:', e.message);
+          } catch (e: unknown) {
+            const err = e as Error;
+            console.warn('Google Identity Services initialization warning:', err.message);
           }
         }
 
@@ -95,8 +100,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             shape: 'rectangular',
             width: 340,
           });
-        } catch (e: any) {
-          console.warn('Google Identity Services renderButton warning:', e.message);
+        } catch (e: unknown) {
+          const err = e as Error;
+          console.warn('Google Identity Services renderButton warning:', err.message);
         }
       }
     };
@@ -112,7 +118,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
       }, 200);
       return () => clearInterval(interval);
     }
-  }, [googleClientId]);
+  }, [googleClientId, handleGoogleCredentialResponse]);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,9 +135,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
       if (res.user) {
         onLogin(res.user);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Email login failed:', err);
-      const serverMessage = err.response?.data?.message || err.message || 'Login failed';
+      const errorObj = err as { response?: { data?: { message?: string } }; message?: string };
+      const serverMessage = errorObj.response?.data?.message || errorObj.message || 'Login failed';
       setError(`Login failed: ${serverMessage}`);
     } finally {
       setLoading(false);

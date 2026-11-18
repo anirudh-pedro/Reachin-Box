@@ -20,7 +20,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<'scheduled' | 'sent'>('scheduled');
   const [view, setView] = useState<View>('list');
   const [selectedEmail, setSelectedEmail] = useState<EmailJob | null>(null);
-  const [isSlackOpen, setIsSlackOpen] = useState(false);
+  const [isSlackOpen, setIsSlackOpen] = useState(() => window.location.search.includes('slack_connected'));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Data states
@@ -164,9 +164,6 @@ export function App() {
         });
     }
 
-    if (window.location.search.includes('slack_connected')) {
-      setIsSlackOpen(true);
-    }
 
     return () => {
       window.removeEventListener('auth:unauthorized', handleUnauthorized);

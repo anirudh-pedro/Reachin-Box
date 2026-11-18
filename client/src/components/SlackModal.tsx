@@ -21,28 +21,32 @@ export const SlackModal: React.FC<SlackModalProps> = ({
   const [isConnecting, setIsConnecting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
-
-  // Check for Slack OAuth redirect query params on mount/open
-  useEffect(() => {
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const slackConnected = urlParams.get('slack_connected');
     const workspaceParam = urlParams.get('workspace');
     const errorParam = urlParams.get('error');
 
     if (slackConnected === 'success') {
-      setFeedback({
+      return {
         type: 'success',
         msg: `Successfully connected Slack workspace ${workspaceParam ? `"${workspaceParam}"` : ''}!`,
-      });
-      onStatusUpdated();
-      // Clean query params from URL without reload
-      window.history.replaceState({}, document.title, window.location.pathname);
+      };
     } else if (slackConnected === 'error') {
-      setFeedback({
+      return {
         type: 'error',
         msg: `Slack authorization failed: ${errorParam ? decodeURIComponent(errorParam) : 'Access denied'}`,
-      });
+      };
+    }
+    return null;
+  });
+
+  // Check for Slack OAuth redirect query params on mount/open
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('slack_connected')) {
+      onStatusUpdated();
+      // Clean query params from URL without reload
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [isOpen, onStatusUpdated]);
@@ -59,11 +63,12 @@ export const SlackModal: React.FC<SlackModalProps> = ({
       } else {
         throw new Error('No authorization URL returned from server.');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to initiate Slack OAuth:', err);
+      const errorObj = err as { response?: { data?: { message?: string; error?: string } }; message?: string };
       setFeedback({
         type: 'error',
-        msg: err.response?.data?.message || err.response?.data?.error || 'Failed to initiate Slack OAuth flow.',
+        msg: errorObj.response?.data?.message || errorObj.response?.data?.error || 'Failed to initiate Slack OAuth flow.',
       });
       setIsConnecting(false);
     }
@@ -86,8 +91,9 @@ export const SlackModal: React.FC<SlackModalProps> = ({
       await api.connectSlackWebhook(webhookUrl, channelName);
       setFeedback({ type: 'success', msg: 'Slack Webhook connected successfully!' });
       onStatusUpdated();
-    } catch (err: any) {
-      setFeedback({ type: 'error', msg: err.response?.data?.error || err.message });
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { error?: string } }; message?: string };
+      setFeedback({ type: 'error', msg: errorObj.response?.data?.error || errorObj.message || 'Failed to connect webhook' });
     } finally {
       setIsConnecting(false);
     }
@@ -99,8 +105,9 @@ export const SlackModal: React.FC<SlackModalProps> = ({
     try {
       await api.testSlackAlert();
       setFeedback({ type: 'success', msg: 'Live test rate-limit alert sent to your Slack channel!' });
-    } catch (err: any) {
-      setFeedback({ type: 'error', msg: err.response?.data?.message || err.message });
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { message?: string } }; message?: string };
+      setFeedback({ type: 'error', msg: errorObj.response?.data?.message || errorObj.message || 'Failed to send test alert' });
     } finally {
       setIsTesting(false);
     }
@@ -113,8 +120,9 @@ export const SlackModal: React.FC<SlackModalProps> = ({
       await api.disconnectSlack();
       setFeedback({ type: 'success', msg: 'Slack integration disconnected successfully.' });
       onStatusUpdated();
-    } catch (err: any) {
-      setFeedback({ type: 'error', msg: err.response?.data?.message || err.message });
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { message?: string } }; message?: string };
+      setFeedback({ type: 'error', msg: errorObj.response?.data?.message || errorObj.message || 'Failed to disconnect Slack' });
     } finally {
       setIsDisconnecting(false);
     }
