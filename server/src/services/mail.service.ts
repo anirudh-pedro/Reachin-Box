@@ -147,6 +147,65 @@ export async function sendEmail({ to, subject, body, senderId }: SendMailParams)
     };
   } catch (err: any) {
     console.error(`❌ SMTP send failed for ${to}:`, err.message);
+
+    // Auto-heal expired or rate-limited Ethereal test accounts
+    if (
+      senderEmail.includes('@ethereal.email') &&
+      (err.message?.includes('Invalid login') ||
+        err.message?.includes('535') ||
+        err.message?.includes('403') ||
+        err.message?.includes('rate limited'))
+    ) {
+      console.warn(`🔄 [MailService] Ethereal credentials expired or rate-limited for ${senderEmail}. Generating fresh test account...`);
+      try {
+        const testAccount = await nodemailer.createTestAccount();
+        if (senderId) {
+          await prisma.senderAccount.update({
+            where: { id: senderId },
+            data: {
+              email: testAccount.user,
+              user: testAccount.user,
+              pass: testAccount.pass,
+            },
+          });
+          transporterCache.delete(senderId);
+        } else {
+          const defaultSender = await prisma.senderAccount.findFirst({ where: { isDefault: true } });
+          if (defaultSender) {
+            await prisma.senderAccount.update({
+              where: { id: defaultSender.id },
+              data: {
+                email: testAccount.user,
+                user: testAccount.user,
+                pass: testAccount.pass,
+              },
+            });
+            transporterCache.delete(defaultSender.id);
+          }
+          transporterCache.delete('default');
+        }
+
+        const fresh = await getTransporterForSender(senderId);
+        const retryInfo = await fresh.transporter.sendMail({
+          from: `"${fresh.senderName}" <${fresh.senderEmail}>`,
+          to,
+          subject,
+          text: body,
+          html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">${body.replace(/\n/g, '<br/>')}</div>`,
+        });
+
+        const retryPreviewUrl = nodemailer.getTestMessageUrl(retryInfo);
+        console.log(`📧 [Auto-Recovery] Email sent to ${to} | ID: ${retryInfo.messageId} | Preview: ${retryPreviewUrl || 'N/A'}`);
+        return {
+          messageId: retryInfo.messageId,
+          previewUrl: retryPreviewUrl,
+          senderEmail: fresh.senderEmail,
+        };
+      } catch (recoveryErr: any) {
+        console.error('Failed to auto-recover ethereal account:', recoveryErr.message);
+      }
+    }
+
     throw err;
   }
 }
