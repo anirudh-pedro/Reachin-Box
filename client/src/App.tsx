@@ -12,8 +12,9 @@ type View = 'list' | 'detail' | 'compose';
 
 export function App() {
   const [user, setUser] = useState<User | null>(() => {
+    const token = localStorage.getItem('reachinbox_token');
     const saved = localStorage.getItem('reachinbox_user');
-    return saved ? JSON.parse(saved) : null;
+    return token && saved ? JSON.parse(saved) : null;
   });
 
   const [activeTab, setActiveTab] = useState<'scheduled' | 'sent'>('scheduled');

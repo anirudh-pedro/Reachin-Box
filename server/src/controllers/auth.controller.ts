@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { prisma } from '../config/prisma.js';
 import {
   verifyGoogleIdToken,
   findOrCreateGoogleUser,
@@ -82,4 +83,54 @@ export async function logoutHandler(_req: Request, res: Response): Promise<void>
     success: true,
     message: 'Logged out successfully',
   });
+}
+
+/**
+ * Handles direct email login/registration (e.g. for development or demo users).
+ * Issues a genuine application session JWT.
+ * POST /api/auth/login
+ */
+export async function emailLoginHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      res.status(400).json({ error: 'Valid email address is required' });
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const namePrefix = cleanEmail.split('@')[0] || 'User';
+
+    let user = await prisma.user.findUnique({
+      where: { email: cleanEmail },
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: cleanEmail,
+          name: namePrefix.charAt(0).toUpperCase() + namePrefix.slice(1),
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces',
+        },
+      });
+    }
+
+    const token = generateSessionToken(user);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar: user.avatar,
+        googleId: user.googleId,
+      },
+    });
+  } catch (err: any) {
+    console.error('❌ [Auth] Email login failed:', err.message);
+    res.status(500).json({ error: 'Login failed', message: err.message });
+  }
 }

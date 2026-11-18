@@ -72,6 +72,19 @@ export const api = {
     return res.data;
   },
 
+  async emailLogin(email: string, password?: string) {
+    const res = await axios.post<{
+      success: boolean;
+      token: string;
+      user: User;
+    }>(`${API_BASE}/auth/login`, { email, password });
+
+    if (res.data.token && res.data.user) {
+      setStoredSession(res.data.token, res.data.user);
+    }
+    return res.data;
+  },
+
   async getCurrentUser() {
     const res = await axios.get<{ success: boolean; user: User }>(`${API_BASE}/auth/me`);
     if (res.data.user) {
