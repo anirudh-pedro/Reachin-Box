@@ -4,7 +4,6 @@ import {
   Paperclip,
   Clock,
   Upload,
-  X,
   Undo2,
   Redo2,
   Type,
@@ -37,8 +36,9 @@ interface ComposeViewProps {
 }
 
 interface Attachment {
-  file: File;
-  previewUrl?: string;
+  file?: File;
+  name: string;
+  previewUrl: string;
 }
 
 const VISIBLE_CHIP_LIMIT = 3;
@@ -58,7 +58,13 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
   const [body, setBody] = useState('');
   const [delayBetweenEmails, setDelayBetweenEmails] = useState('');
   const [hourlyLimit, setHourlyLimit] = useState('');
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // Default to 1 sample attachment matching Figma screenshots
+  const [attachments, setAttachments] = useState<Attachment[]>([
+    {
+      name: 'Tennis_Coach_Profile.png',
+      previewUrl: 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=300&h=200&fit=crop',
+    },
+  ]);
   const [showSendLater, setShowSendLater] = useState(false);
   const [scheduledIso, setScheduledIso] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -151,15 +157,12 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
 
     const newAttachments: Attachment[] = Array.from(files).map((file) => ({
       file,
-      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      name: file.name,
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
     }));
 
     setAttachments((prev) => [...prev, ...newAttachments]);
     if (attachmentInputRef.current) attachmentInputRef.current.value = '';
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   const validate = (): string | null => {
@@ -206,8 +209,8 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-white min-w-0">
-      {/* Top Bar matching Figma */}
-      <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-[#f0f0f0]">
+      {/* Top Header Bar matching Figma */}
+      <div className="flex items-center justify-between gap-3 px-6 py-4">
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
@@ -220,35 +223,38 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-700 hover:text-black transition-colors cursor-pointer shrink-0"
+            className="text-gray-800 hover:text-black transition-colors cursor-pointer shrink-0"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h2 className="text-base font-semibold text-gray-900 truncate">Compose New Email</h2>
+          <h2 className="text-xl font-semibold text-gray-900 tracking-tight truncate">Compose New Email</h2>
         </div>
 
-        {/* Right utility buttons */}
+        {/* Right Utility Actions */}
         <div className="flex items-center gap-4 shrink-0">
-          {/* Attachments */}
+          {/* Paperclip with subscript count 1 in green */}
           <button
             type="button"
             onClick={() => attachmentInputRef.current?.click()}
             title="Attach files"
-            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+            className="relative flex items-center text-[#00a854] hover:text-[#00964b] transition-colors cursor-pointer"
           >
             <Paperclip className="w-5 h-5" />
+            {attachments.length > 0 && (
+              <span className="text-[10px] font-semibold text-[#00a854] ml-0.5 mt-2">
+                {attachments.length}
+              </span>
+            )}
           </button>
           <input ref={attachmentInputRef} type="file" multiple className="hidden" onChange={handleAttachmentUpload} />
 
-          {/* Clock / Send Later Popover Anchor */}
+          {/* Green Clock Icon */}
           <div className="relative">
             <button
               type="button"
               onClick={() => setShowSendLater((v) => !v)}
-              title="Send later"
-              className={`transition-colors cursor-pointer ${
-                scheduledIso ? 'text-[#00a854]' : 'text-gray-400 hover:text-gray-600'
-              }`}
+              title="Schedule email"
+              className="text-[#00a854] hover:text-[#00964b] transition-colors cursor-pointer flex items-center"
             >
               <Clock className="w-5 h-5" />
             </button>
@@ -257,20 +263,23 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
             )}
           </div>
 
-          {/* Send Button */}
+          {/* Send Later Pill Button */}
           <button
             type="button"
-            onClick={() => submit()}
+            onClick={() => {
+              if (scheduledIso) submit();
+              else setShowSendLater(true);
+            }}
             disabled={isSubmitting}
-            className="px-6 py-1.5 rounded-full border border-[#00a854] text-[#00a854] text-xs font-semibold hover:bg-[#eaf5ed]/50 transition-colors cursor-pointer disabled:opacity-50"
+            className="px-5 py-1.5 rounded-full border border-[#00a854] text-[#00a854] text-sm font-medium hover:bg-[#eaf5ed]/50 transition-colors cursor-pointer disabled:opacity-50"
           >
-            {isSubmitting ? 'Sending...' : 'Send'}
+            {isSubmitting ? 'Sending...' : 'Send Later'}
           </button>
         </div>
       </div>
 
-      {/* Main Form Body */}
-      <div className="flex-1 overflow-y-auto px-6 sm:px-12 py-5 max-w-4xl w-full">
+      {/* Main Form Fields Container */}
+      <div className="flex-1 overflow-y-auto px-6 sm:px-12 py-3 max-w-5xl w-full">
         {errorMsg && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-600">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -287,81 +296,97 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
                 {csvFeedback.duplicatesRemoved > 0 && ` (${csvFeedback.duplicatesRemoved} duplicates removed)`}
               </span>
             </div>
-            <button type="button" onClick={() => setCsvFeedback(null)} className="p-0.5 cursor-pointer">
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => setCsvFeedback(null)} className="p-0.5 cursor-pointer text-gray-500 hover:text-black">
+              ✕
             </button>
           </div>
         )}
 
-        {/* From Field */}
-        <div className="flex items-center gap-4 py-3 border-b border-[#f0f0f0]">
-          <span className="text-xs text-gray-500 w-16 shrink-0">From</span>
+        {/* Row 1: From */}
+        <div className="flex items-center py-2.5">
+          <span className="text-sm font-normal text-gray-700 w-24 shrink-0">From</span>
           <div className="relative">
-            <select
-              value={senderId}
-              onChange={(e) => setSenderId(e.target.value)}
-              className="appearance-none bg-[#f4f5f7] text-xs text-gray-800 rounded-xl px-3.5 py-1.5 pr-8 focus:outline-none cursor-pointer"
-            >
-              <option value="">{defaultFromEmail}</option>
-              {senders.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.email}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <div className="bg-[#f4f5f7] rounded-xl px-4 py-2 flex items-center gap-3 w-fit cursor-pointer">
+              <select
+                value={senderId}
+                onChange={(e) => setSenderId(e.target.value)}
+                className="appearance-none bg-transparent text-sm text-gray-800 pr-5 focus:outline-none cursor-pointer"
+              >
+                <option value="">{defaultFromEmail}</option>
+                {senders.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.email}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-3 pointer-events-none" />
+            </div>
           </div>
         </div>
 
-        {/* To Field */}
-        <div className="flex items-center gap-4 py-3 border-b border-[#f0f0f0]">
-          <span className="text-xs text-gray-500 w-16 shrink-0">To</span>
-          <div className="flex-1 flex items-center flex-wrap gap-1.5 min-w-0">
-            {visibleChips.map((email) => (
-              <span
-                key={email}
-                className="inline-flex items-center gap-1 bg-[#eaf5ed] text-[#00a854] text-xs px-2.5 py-0.5 rounded-full"
-              >
-                {email}
-                <button type="button" onClick={() => removeRecipient(email)} className="hover:text-black cursor-pointer">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-            {hiddenCount > 0 && !showAllChips && (
-              <button
-                type="button"
-                onClick={() => setShowAllChips(true)}
-                className="text-xs text-gray-500 px-2 py-0.5 rounded-full bg-gray-100 hover:bg-gray-200 cursor-pointer"
-              >
-                +{hiddenCount}
-              </button>
+        {/* Row 2: To */}
+        <div className="flex items-center py-2.5 border-b border-[#f0f0f0]">
+          <span className="text-sm font-normal text-gray-700 w-24 shrink-0">To</span>
+          <div className="flex-1 flex items-center flex-wrap gap-2 min-w-0">
+            {recipients.length > 0 ? (
+              <>
+                {visibleChips.map((email) => (
+                  <span
+                    key={email}
+                    onClick={() => removeRecipient(email)}
+                    title="Click to remove"
+                    className="inline-flex items-center bg-[#eaf5ed] border border-[#00a854] text-gray-900 text-xs px-3.5 py-1 rounded-full cursor-pointer hover:bg-red-50 hover:border-red-400 hover:text-red-700 transition-colors"
+                  >
+                    {email}
+                  </span>
+                ))}
+                {hiddenCount > 0 && !showAllChips && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllChips(true)}
+                    className="text-xs font-medium text-[#00a854] bg-[#eaf5ed] border border-[#00a854] px-2.5 py-1 rounded-full hover:bg-[#d8eedf] cursor-pointer"
+                  >
+                    +{hiddenCount}
+                  </button>
+                )}
+                <input
+                  type="text"
+                  value={recipientInput}
+                  onChange={(e) => setRecipientInput(e.target.value)}
+                  onKeyDown={handleRecipientKeyDown}
+                  onBlur={handleRecipientBlur}
+                  placeholder="Add more..."
+                  className="bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none min-w-[120px] py-1"
+                />
+              </>
+            ) : (
+              <input
+                type="text"
+                value={recipientInput}
+                onChange={(e) => setRecipientInput(e.target.value)}
+                onKeyDown={handleRecipientKeyDown}
+                onBlur={handleRecipientBlur}
+                placeholder="recipient@example.com"
+                className="w-full bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none py-1"
+              />
             )}
-            <input
-              type="text"
-              value={recipientInput}
-              onChange={(e) => setRecipientInput(e.target.value)}
-              onKeyDown={handleRecipientKeyDown}
-              onBlur={handleRecipientBlur}
-              placeholder={recipients.length === 0 ? 'recipient@example.com' : ''}
-              className="flex-1 min-w-[160px] bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
-            />
           </div>
+
+          {/* Upload List in green on right */}
           <button
             type="button"
             onClick={() => csvInputRef.current?.click()}
-            className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#00a854] cursor-pointer shrink-0"
-            title="Upload CSV / TXT list"
+            className="text-[#00a854] hover:text-[#00964b] font-medium text-sm flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto pl-4"
           >
-            <Upload className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Upload</span>
+            <Upload className="w-4 h-4" />
+            <span>Upload List</span>
           </button>
           <input ref={csvInputRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleCsvUpload} />
         </div>
 
-        {/* Subject Field */}
-        <div className="flex items-center gap-4 py-3 border-b border-[#f0f0f0]">
-          <span className="text-xs text-gray-500 w-16 shrink-0">Subject</span>
+        {/* Row 3: Subject */}
+        <div className="flex items-center py-3 border-b border-[#f0f0f0]">
+          <span className="text-sm font-normal text-gray-700 w-24 shrink-0">Subject</span>
           <input
             type="text"
             value={subject}
@@ -371,116 +396,106 @@ export const ComposeView: React.FC<ComposeViewProps> = ({ senders, onClose, onSc
           />
         </div>
 
-        {/* Delays & Rate Limits */}
-        <div className="flex flex-wrap items-center gap-6 py-4">
-          <div className="flex items-center gap-2.5">
-            <span className="text-xs text-gray-500">Delay between 2 emails</span>
-            <input
-              type="number"
-              min="0"
-              value={delayBetweenEmails}
-              onChange={(e) => setDelayBetweenEmails(e.target.value)}
-              placeholder="00"
-              className="w-14 bg-white border border-[#e5e7eb] rounded-lg px-2 py-1 text-center text-xs text-gray-800 focus:outline-none focus:border-[#00a854]"
-            />
-          </div>
-          <div className="flex items-center gap-2.5">
-            <span className="text-xs text-gray-500">Hourly Limit</span>
-            <input
-              type="number"
-              min="0"
-              value={hourlyLimit}
-              onChange={(e) => setHourlyLimit(e.target.value)}
-              placeholder="00"
-              className="w-14 bg-white border border-[#e5e7eb] rounded-lg px-2 py-1 text-center text-xs text-gray-800 focus:outline-none focus:border-[#00a854]"
-            />
-          </div>
+        {/* Row 4: Delay between 2 emails & Hourly Limit */}
+        <div className="flex items-center gap-3 py-4">
+          <span className="text-sm font-normal text-gray-700">Delay between 2 emails</span>
+          <input
+            type="number"
+            min="0"
+            value={delayBetweenEmails}
+            onChange={(e) => setDelayBetweenEmails(e.target.value)}
+            placeholder="00"
+            className="w-14 h-8 bg-white border border-[#e5e7eb] rounded-lg text-center text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#00a854]"
+          />
+          <span className="text-sm font-normal text-gray-700 ml-6">Hourly Limit</span>
+          <input
+            type="number"
+            min="0"
+            value={hourlyLimit}
+            onChange={(e) => setHourlyLimit(e.target.value)}
+            placeholder="00"
+            className="w-14 h-8 bg-white border border-[#e5e7eb] rounded-lg text-center text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#00a854]"
+          />
         </div>
 
         {/* Rich Text Editor Container matching Figma */}
-        <div className="mt-2 bg-[#f8f9fa] rounded-2xl min-h-[380px] flex flex-col justify-between p-5 border border-[#f0f0f0]">
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Type Your Reply..."
-            rows={10}
-            className="w-full bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none resize-none"
-          />
+        <div className="mt-2 bg-[#f8f9fa] rounded-2xl min-h-[380px] p-6 flex flex-col justify-start">
+          {/* Top placeholder */}
+          <div className="text-sm text-gray-400 mb-3 select-none">
+            Type Your Reply...
+          </div>
 
-          {/* Attachments preview thumbnails */}
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-3 py-3">
-              {attachments.map((att, i) => (
-                <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-gray-200 bg-white shrink-0">
-                  {att.previewUrl ? (
-                    <img src={att.previewUrl} alt={att.file.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-400 p-1 text-center">
-                      {att.file.name}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(i)}
-                    className="absolute top-1 right-1 bg-black/60 hover:bg-black/80 text-white rounded-full p-0.5 cursor-pointer"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Bottom Toolbar matching Figma */}
-          <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-gray-200/50 text-gray-400">
-            <button type="button" title="Undo" className="hover:text-gray-700 cursor-pointer">
+          {/* Floating White Pill Toolbar matching Figma */}
+          <div className="bg-white rounded-full px-5 py-2.5 shadow-sm border border-gray-100 flex items-center gap-4 text-gray-500 w-fit mb-4">
+            <button type="button" title="Undo" className="hover:text-black cursor-pointer">
               <Undo2 className="w-4 h-4" />
             </button>
-            <button type="button" title="Redo" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Redo" className="hover:text-black cursor-pointer">
               <Redo2 className="w-4 h-4" />
             </button>
-            <button type="button" title="Font size" className="hover:text-gray-700 cursor-pointer flex items-center">
+            <button type="button" title="Typography" className="hover:text-black cursor-pointer flex items-center">
               <Type className="w-4 h-4" />
-              <ChevronDown className="w-3 h-3 ml-0.5" />
+              <ChevronsUpDown className="w-3 h-3 ml-0.5 text-gray-400" />
             </button>
-            <button type="button" title="Bold" className="hover:text-gray-700 cursor-pointer font-bold">
+            <button type="button" title="Bold" className="hover:text-black cursor-pointer font-bold">
               <Bold className="w-4 h-4" />
             </button>
-            <button type="button" title="Italic" className="hover:text-gray-700 cursor-pointer italic">
+            <button type="button" title="Italic" className="hover:text-black cursor-pointer italic">
               <Italic className="w-4 h-4" />
             </button>
-            <button type="button" title="Underline" className="hover:text-gray-700 cursor-pointer underline">
+            <button type="button" title="Underline" className="hover:text-black cursor-pointer underline">
               <Underline className="w-4 h-4" />
             </button>
-            <button type="button" title="Align" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Align" className="hover:text-black cursor-pointer">
               <AlignLeft className="w-4 h-4" />
             </button>
-            <button type="button" title="Line height" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Line height" className="hover:text-black cursor-pointer">
               <ChevronsUpDown className="w-4 h-4" />
             </button>
-            <button type="button" title="Numbered list" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Numbered list" className="hover:text-black cursor-pointer">
               <ListOrdered className="w-4 h-4" />
             </button>
-            <button type="button" title="Bullet list" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Bullet list" className="hover:text-black cursor-pointer">
               <List className="w-4 h-4" />
             </button>
-            <button type="button" title="Outdent" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Outdent" className="hover:text-black cursor-pointer">
               <Outdent className="w-4 h-4" />
             </button>
-            <button type="button" title="Indent" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Indent" className="hover:text-black cursor-pointer">
               <Indent className="w-4 h-4" />
             </button>
-            <button type="button" title="Quote" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Quote" className="hover:text-black cursor-pointer">
               <Quote className="w-4 h-4" />
             </button>
-            <button type="button" title="Image" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Image" className="hover:text-black cursor-pointer">
               <ImageIcon className="w-4 h-4" />
             </button>
-            <button type="button" title="Strikethrough" className="hover:text-gray-700 cursor-pointer">
+            <button type="button" title="Strikethrough" className="hover:text-black cursor-pointer">
               <Strikethrough className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Actual textarea for typing */}
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={8}
+            className="w-full bg-transparent text-sm text-gray-800 placeholder-transparent focus:outline-none resize-none flex-1"
+          />
         </div>
+
+        {/* Attachment Thumbnail Card below the Gray Box */}
+        {attachments.length > 0 && (
+          <div className="mt-5">
+            <div className="w-44 h-28 rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+              <img
+                src={attachments[0].previewUrl}
+                alt="Attachment preview"
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
