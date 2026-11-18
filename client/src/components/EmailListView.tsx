@@ -166,7 +166,7 @@ export const EmailListView: React.FC<EmailListViewProps> = ({
 
       {/* Email List Content */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
+        {loading && displayedEmails.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-gray-400 gap-3">
             <Loader2 className="w-6 h-6 animate-spin text-[#00a854]" />
             <span className="text-xs">Loading {mode} emails...</span>

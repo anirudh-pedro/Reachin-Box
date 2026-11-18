@@ -56,8 +56,8 @@ export function App() {
     }
   }, []);
 
-  const fetchScheduled = useCallback(async (page = 1, search = scheduledSearch) => {
-    setLoading(true);
+  const fetchScheduled = useCallback(async (page = 1, search = scheduledSearch, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const trimmedQuery = search.trim();
       if (trimmedQuery) {
@@ -73,12 +73,12 @@ export function App() {
     } catch (err) {
       console.error('Failed to fetch scheduled emails:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [scheduledSearch]);
 
-  const fetchSent = useCallback(async (page = 1, search = sentSearch) => {
-    setLoading(true);
+  const fetchSent = useCallback(async (page = 1, search = sentSearch, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const trimmedQuery = search.trim();
       if (trimmedQuery) {
@@ -94,29 +94,29 @@ export function App() {
     } catch (err) {
       console.error('Failed to fetch sent emails:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [sentSearch]);
 
   useEffect(() => {
     if (!user) return;
     fetchData();
-    fetchScheduled(1);
-    fetchSent(1);
+    fetchScheduled(1, '', false);
+    fetchSent(1, '', false);
 
-    // Auto-refresh stats every 4 seconds, but do NOT clobber active searches
+    // Silent periodic background sync every 15 seconds (no loaders, no screen flickering)
     const interval = setInterval(() => {
       fetchData();
       if (activeTab === 'scheduled') {
         if (!scheduledSearch.trim()) {
-          fetchScheduled(scheduledPagination.page);
+          fetchScheduled(scheduledPagination.page, '', true);
         }
       } else {
         if (!sentSearch.trim()) {
-          fetchSent(sentPagination.page);
+          fetchSent(sentPagination.page, '', true);
         }
       }
-    }, 4000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [user, activeTab, scheduledSearch, sentSearch, scheduledPagination.page, sentPagination.page, fetchData, fetchScheduled, fetchSent]);
