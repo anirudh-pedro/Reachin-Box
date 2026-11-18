@@ -16,7 +16,7 @@ import {
 } from '../../src/services/rate-limiter.service.js';
 import { logWorkerExecutionAudit } from '../../src/queue/email.worker.js';
 
-describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', () => {
+describe('Critical Bug Verification: 13 Emails with Limit 6 & Multi-Worker Coordination', () => {
   let redis: Redis;
   let lock: DistributedLock;
   const createdJobIds: string[] = [];
@@ -230,9 +230,9 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
     }
   }
 
-  it('Regression Test 1: Schedule 3 emails with a limit of 5: all 3 must be sent', async () => {
+  it('Regression Test 1: Schedule 3 emails with a limit of 6: all 3 must be sent', async () => {
     const senderId = `test1_reg_${Date.now()}`;
-    const HOURLY_LIMIT = 5;
+    const HOURLY_LIMIT = 6;
     await resetSenderRateLimit(senderId);
 
     const records = Array.from({ length: 3 }, (_, i) => ({
@@ -261,12 +261,12 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
     assert.strictEqual(await getHourlyCount(senderId), 3, 'Redis counter must be 3');
   });
 
-  it('Regression Test 2: Schedule 5 emails with a limit of 5: all 5 must be sent', async () => {
+  it('Regression Test 2: Schedule 6 emails with a limit of 6: all 6 must be sent', async () => {
     const senderId = `test2_reg_${Date.now()}`;
-    const HOURLY_LIMIT = 5;
+    const HOURLY_LIMIT = 6;
     await resetSenderRateLimit(senderId);
 
-    const records = Array.from({ length: 5 }, (_, i) => ({
+    const records = Array.from({ length: 6 }, (_, i) => ({
       recipient: `reg2_${i + 1}@domain.io`,
       subject: `Test 2 Email #${i + 1}`,
       body: 'Body',
@@ -287,9 +287,9 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
     const sent = results.filter((r) => r.status === 'SENT').length;
     const rescheduled = results.filter((r) => r.status === 'RATE_LIMITED').length;
 
-    assert.strictEqual(sent, 5, 'All 5 emails must be SENT');
+    assert.strictEqual(sent, 6, 'All 6 emails must be SENT');
     assert.strictEqual(rescheduled, 0, '0 emails rescheduled');
-    assert.strictEqual(await getHourlyCount(senderId), 5, 'Redis counter must be exactly 5');
+    assert.strictEqual(await getHourlyCount(senderId), 6, 'Redis counter must be exactly 6');
   });
 
   let test3SentTimestamps: Date[] = [];
@@ -297,9 +297,9 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
   let test3CreatedIds: string[] = [];
   let test3SenderId: string;
 
-  it('Regression Test 3: Schedule 13 emails with a limit of 5: exactly 5 sent and 8 rescheduled', async () => {
+  it('Regression Test 3: Schedule 13 emails with a limit of 6: exactly 6 sent and 7 rescheduled', async () => {
     test3SenderId = `test3_reg_${Date.now()}`;
-    const HOURLY_LIMIT = 5;
+    const HOURLY_LIMIT = 6;
     await resetSenderRateLimit(test3SenderId);
 
     const TOTAL_EMAILS = 13;
@@ -333,13 +333,13 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
 
     console.log(`\n🎯 [Regression Test 3 Results]`);
     console.log(`• Total Scheduled: 13`);
-    console.log(`• Hourly Limit:    5`);
+    console.log(`• Hourly Limit:    6`);
     console.log(`• Sent Count:      ${sentJobs.length}`);
     console.log(`• Rescheduled:     ${rescheduledJobs.length}`);
 
-    assert.strictEqual(sentJobs.length, 5, 'Exactly 5 emails must be SENT in current window');
-    assert.strictEqual(rescheduledJobs.length, 8, 'Exactly 8 emails must be RESCHEDULED to next window');
-    assert.strictEqual(await getHourlyCount(test3SenderId), 5, 'Redis counter must be exactly 5');
+    assert.strictEqual(sentJobs.length, 6, 'Exactly 6 emails must be SENT in current window');
+    assert.strictEqual(rescheduledJobs.length, 7, 'Exactly 7 emails must be RESCHEDULED to next window');
+    assert.strictEqual(await getHourlyCount(test3SenderId), 6, 'Redis counter must be exactly 6');
 
     // DB state verification
     const dbSent = await prisma.emailJob.count({
@@ -348,8 +348,8 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
     const dbRescheduled = await prisma.emailJob.count({
       where: { id: { in: created.map((c) => c.id) }, status: 'RATE_LIMITED' },
     });
-    assert.strictEqual(dbSent, 5, 'PostgreSQL must reflect exactly 5 SENT records');
-    assert.strictEqual(dbRescheduled, 8, 'PostgreSQL must reflect exactly 8 RATE_LIMITED records');
+    assert.strictEqual(dbSent, 6, 'PostgreSQL must reflect exactly 6 SENT records');
+    assert.strictEqual(dbRescheduled, 7, 'PostgreSQL must reflect exactly 7 RATE_LIMITED records');
   });
 
   it('Regression Test 4: Verify 2-second spacing between authorized sends', async () => {
@@ -381,8 +381,8 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
     assert.ok(gapMs >= 1950, `Must be at least ~2000ms apart (actual: ${gapMs}ms >= 1950ms)`);
   });
 
-  it('Regression Test 5: Verify the 8 rescheduled jobs do not keep changing timestamps unnecessarily', async () => {
-    assert.strictEqual(test3RescheduledIds.length, 8, '8 rescheduled jobs must exist');
+  it('Regression Test 5: Verify the 7 rescheduled jobs do not keep changing timestamps unnecessarily', async () => {
+    assert.strictEqual(test3RescheduledIds.length, 7, '7 rescheduled jobs must exist');
 
     // Capture initial scheduledAt timestamps
     const initialJobs = await prisma.emailJob.findMany({
@@ -392,9 +392,9 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
 
     const initialTimestampMap = new Map(initialJobs.map((j) => [j.id, j.scheduledAt.getTime()]));
 
-    // Re-run worker pass on the same 8 jobs while quota is still full
+    // Re-run worker pass on the same 7 jobs while quota is still full
     for (const jobId of test3RescheduledIds) {
-      await processEmail(jobId, test3SenderId, 5, 0.2);
+      await processEmail(jobId, test3SenderId, 6, 0.2);
     }
 
     // Verify that scheduledAt timestamps DID NOT CHANGE
@@ -412,11 +412,11 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
       );
     }
 
-    console.log('✅ Confirmed: 8 rescheduled jobs remained at completely stable timestamps without drift');
+    console.log('✅ Confirmed: 7 rescheduled jobs remained at completely stable timestamps without drift');
   });
 
-  it('Regression Test 6: Verify all 8 jobs execute after the quota resets', async () => {
-    assert.strictEqual(test3RescheduledIds.length, 8);
+  it('Regression Test 6: Verify all 7 jobs execute after the quota resets', async () => {
+    assert.strictEqual(test3RescheduledIds.length, 7);
 
     // Simulate quota reset (entering the next hourly window)
     await resetSenderRateLimit(test3SenderId);
@@ -428,9 +428,9 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
       data: { scheduledAt: new Date(Date.now() - 1000) },
     });
 
-    // Pass 1 in Window 2: Next 5 emails should send
+    // Pass 1 in Window 2: Next 6 emails should send (up to limit of 6)
     for (const emailId of test3RescheduledIds) {
-      await processEmail(emailId, test3SenderId, 5, 0.2);
+      await processEmail(emailId, test3SenderId, 6, 0.2);
     }
 
     const window2Sent = await prisma.emailJob.count({
@@ -440,24 +440,24 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
       where: { id: { in: test3RescheduledIds }, status: 'RATE_LIMITED' },
     });
 
-    assert.strictEqual(window2Sent, 5, 'Window 2 must send next 5 emails up to limit');
-    assert.strictEqual(window2RateLimited, 3, 'Window 2 must reschedule remaining 3 emails');
+    assert.strictEqual(window2Sent, 6, 'Window 2 must send next 6 emails up to limit');
+    assert.strictEqual(window2RateLimited, 1, 'Window 2 must reschedule remaining 1 email');
 
-    // Simulate Window 3 Quota Reset for remaining 3 emails
+    // Simulate Window 3 Quota Reset for remaining 1 email
     await resetSenderRateLimit(test3SenderId);
     await prisma.emailJob.updateMany({
       where: { id: { in: test3RescheduledIds }, status: 'RATE_LIMITED' },
       data: { scheduledAt: new Date(Date.now() - 1000) },
     });
 
-    const remaining3 = await prisma.emailJob.findMany({
+    const remaining1 = await prisma.emailJob.findMany({
       where: { id: { in: test3RescheduledIds }, status: 'RATE_LIMITED' },
       select: { id: true },
     });
-    assert.strictEqual(remaining3.length, 3);
+    assert.strictEqual(remaining1.length, 1);
 
-    for (const r of remaining3) {
-      await processEmail(r.id, test3SenderId, 5, 0.2);
+    for (const r of remaining1) {
+      await processEmail(r.id, test3SenderId, 6, 0.2);
     }
 
     // Final total check across all 13 emails of Test 3
@@ -480,7 +480,7 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
         body: 'Recovery payload',
         status: 'SCHEDULED',
         scheduledAt: new Date(Date.now() + 50),
-        hourlyLimit: 5,
+        hourlyLimit: 6,
         delayBetweenEmails: 0.2,
       },
     });
@@ -495,17 +495,17 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
     await new Promise((r) => setTimeout(r, 150));
 
     // 3. Worker 2 restarts and picks up job
-    const result = await processEmail(email.id, senderId, 5, 0.2, 'worker-recovered');
+    const result = await processEmail(email.id, senderId, 6, 0.2, 'worker-recovered');
     assert.strictEqual(result.status, 'SENT', 'Recovered worker must successfully process job');
 
     // 4. Verify idempotent replay does not duplicate
-    const replay = await processEmail(email.id, senderId, 5, 0.2, 'worker-replay');
+    const replay = await processEmail(email.id, senderId, 6, 0.2, 'worker-replay');
     assert.strictEqual(replay.status, 'ALREADY_SENT', 'Replay must be skipped as already sent');
   });
 
-  it('Regression Test 8: Run multiple workers and verify no rate-limit breaches', async () => {
+  it('Regression Test 8: Run multiple workers with limit 6 and verify no rate-limit breaches', async () => {
     const senderId = `multi_worker_reg_${Date.now()}`;
-    const HOURLY_LIMIT = 5;
+    const HOURLY_LIMIT = 6;
     await resetSenderRateLimit(senderId);
 
     const records = Array.from({ length: 13 }, (_, i) => ({
@@ -533,8 +533,66 @@ describe('Critical Bug Verification: 13 Emails with Limit 5 & 2-Second Delay', (
 
     console.log(`\n📊 [Regression Test 8 Multi-Worker Results] SENT: ${sent}, RESCHEDULED: ${rescheduled}`);
 
-    assert.strictEqual(sent, 5, 'Exactly 5 authorized sends under multi-worker concurrency');
-    assert.strictEqual(rescheduled, 8, 'Exactly 8 rescheduled under multi-worker concurrency');
-    assert.strictEqual(await getHourlyCount(senderId), 5, 'Redis counter must strictly never exceed limit of 5');
+    assert.strictEqual(sent, 6, 'Exactly 6 authorized sends under multi-worker concurrency');
+    assert.strictEqual(rescheduled, 7, 'Exactly 7 rescheduled under multi-worker concurrency');
+    assert.strictEqual(await getHourlyCount(senderId), 6, 'Redis counter must strictly never exceed limit of 6');
+  });
+
+  it('Regression Test 9: Previous quota already consumed (14 sent, limit 6) results in 0 sent and 13 rescheduled', async () => {
+    const senderId = `preconsumed_test_${Date.now()}`;
+    const HOURLY_LIMIT = 6;
+    await resetSenderRateLimit(senderId);
+
+    // Simulate 14 emails having already been sent in the current hourly window
+    await setHourlyCount(senderId, 14);
+    assert.strictEqual(await getHourlyCount(senderId), 14, 'Initial counter simulates 14 already sent');
+
+    const records = Array.from({ length: 13 }, (_, i) => ({
+      recipient: `preconsumed_${i + 1}@domain.io`,
+      subject: `Preconsumed Test #${i + 1}`,
+      body: 'Testing preconsumed quota state',
+      status: 'SCHEDULED' as const,
+      scheduledAt: new Date(),
+      hourlyLimit: HOURLY_LIMIT,
+      delayBetweenEmails: 0.2,
+    }));
+
+    const created = await prisma.emailJob.createManyAndReturn({ data: records, select: { id: true } });
+    created.forEach((c) => createdJobIds.push(c.id));
+
+    const results = [];
+    for (const item of created) {
+      results.push(await processEmail(item.id, senderId, HOURLY_LIMIT, 0.2));
+    }
+
+    const sent = results.filter((r) => r.status === 'SENT').length;
+    const rescheduled = results.filter((r) => r.status === 'RATE_LIMITED').length;
+
+    console.log(`\n📊 [Regression Test 9 Preconsumed Quota Results] SENT: ${sent}, RESCHEDULED: ${rescheduled}`);
+    assert.strictEqual(sent, 0, 'Zero emails must be sent when hourly limit is already consumed');
+    assert.strictEqual(rescheduled, 13, 'All 13 emails must be rescheduled to next hourly window');
+    assert.strictEqual(await getHourlyCount(senderId), 14, 'Redis counter must not be incremented by rejections');
+
+    // Simulate quota reset for the new hour window
+    await resetSenderRateLimit(senderId);
+    assert.strictEqual(await getHourlyCount(senderId), 0, 'Counter resets to 0 in next hour');
+
+    // Now process the same 13 emails: exactly 6 should send, remaining 7 rescheduled
+    await prisma.emailJob.updateMany({
+      where: { id: { in: created.map((c) => c.id) } },
+      data: { scheduledAt: new Date(Date.now() - 1000) },
+    });
+
+    const secondPassResults = [];
+    for (const item of created) {
+      secondPassResults.push(await processEmail(item.id, senderId, HOURLY_LIMIT, 0.2));
+    }
+
+    const secondPassSent = secondPassResults.filter((r) => r.status === 'SENT').length;
+    const secondPassRescheduled = secondPassResults.filter((r) => r.status === 'RATE_LIMITED').length;
+
+    assert.strictEqual(secondPassSent, 6, 'Exactly 6 emails sent in the new window');
+    assert.strictEqual(secondPassRescheduled, 7, 'Remaining 7 rescheduled to next window');
+    assert.strictEqual(await getHourlyCount(senderId), 6, 'Redis counter must be 6');
   });
 });
